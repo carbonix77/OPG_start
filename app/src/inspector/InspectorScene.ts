@@ -22,6 +22,7 @@ import {
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import { assetUrl, fileUrl, type LocalAsset } from "./assets";
+import { FOLLOW_NODE_CANDIDATES, meshIndexOf, type PreviewConfig } from "./previewConfig";
 import { applyTemporaryLook, type TemporaryLook, type TextureNote } from "./textures";
 
 export interface MeshRow {
@@ -69,6 +70,19 @@ const VIEWS: Record<string, { alpha: number; beta: number }> = {
   three: { alpha: Math.PI / 2 + 0.65, beta: 1.05 },
 };
 
+export type VisibilityPreset = "all" | "hide-static" | "stacks";
+
+export interface HandoffRow {
+  clip: string;
+  /** Seconds before the attack end, or after the idle start. */
+  edgeSeconds: number;
+  normalized: number;
+  rootLocal: [number, number, number];
+  rootWorld: [number, number, number];
+  /** Pose bone position minus the follow node, after recenter. */
+  poseOffset: [number, number, number] | null;
+}
+
 export interface MeshCard {
   name: string;
   vertices: number;
@@ -95,6 +109,13 @@ export class InspectorScene {
   private tight = false;
   private framePhase: "idle" | "attack" = "idle";
   private attackEnd: Observer<AnimationGroup> | null = null;
+  private attackClip = "";
+  private preview: PreviewConfig | null = null;
+  private visibility: VisibilityPreset = "all";
+  private shotRadius: number | null = null;
+  private readonly sun: DirectionalLight;
+  private readonly rim: DirectionalLight;
+  private readonly groundMat: StandardMaterial;
   private sheetTest: { mesh: Mesh; previous: Material | null; material: PBRMaterial; texture: Texture } | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -108,24 +129,35 @@ export class InspectorScene {
     this.camera.wheelPrecision = 2;
     const fill = new HemisphericLight("fill", new Vector3(0, 1, 0), this.scene);
     fill.intensity = 0.7;
-    const sun = new DirectionalLight("sun", new Vector3(-0.4, -1, 0.3), this.scene);
-    sun.intensity = 0.8;
+    this.sun = new DirectionalLight("sun", new Vector3(-0.4, -1, 0.3), this.scene);
+    this.sun.intensity = 0.8;
+    this.rim = new DirectionalLight("rim", new Vector3(0.7, -0.35, 0.6), this.scene);
+    this.rim.intensity = 0;
     const ground = MeshBuilder.CreateGround("ground", { width: 4000, height: 4000 }, this.scene);
     ground.position.y = 0;
-    const groundMat = new StandardMaterial("ground-mat", this.scene);
-    groundMat.diffuseColor = new Color3(0.16, 0.17, 0.19);
-    groundMat.specularColor = Color3.Black();
-    ground.material = groundMat;
+    this.groundMat = new StandardMaterial("ground-mat", this.scene);
+    this.groundMat.diffuseColor = new Color3(0.16, 0.17, 0.19);
+    this.groundMat.specularColor = Color3.Black();
+    ground.material = this.groundMat;
     ground.receiveShadows = false;
     this.previewRoot = new TransformNode("previewRoot", this.scene);
     this.engine.runRenderLoop(() => {
       this.applyRecenter();
+      if (this.visibility === "stacks") this.applyStackVisibility();
       if (this.follow && this.followNode) {
         if (this.tight) this.aimPreview();
         else this.camera.target.copyFrom(this.followNode.getAbsolutePosition());
       }
       this.scene.render();
     });
+  }
+
+  setPreviewConfig(config: PreviewConfig): void {
+    this.preview = config;
+  }
+
+  currentPreview(): PreviewConfig | null {
+    return this.preview;
   }
 
   async load(asset: LocalAsset): Promise<SceneFacts> {
@@ -191,6 +223,7 @@ export class InspectorScene {
     const group = this.groups.find((item) => item.name === name);
     if (!group) return;
     this.clearAttackEnd();
+    this.shotRadius = null;
     for (const other of this.groups) {
       if (other !== group) other.stop();
     }
@@ -198,32 +231,34 @@ export class InspectorScene {
   }
 
   /**
-   * Loops Zoro_0000 on the skeleton already in this file.
+   * Loops the configured idle clip on the skeleton already in this file.
    * Provisional preview idle. Does not retarget another file's clip.
    */
-  playProvisionalIdle(): string {
-    const idle = this.groups.find((item) => item.name === "Zoro_0000");
-    if (!idle) return "This file has no Zoro_0000. The clip is not copied onto another skeleton.";
+  playProvisionalIdle(config: PreviewConfig): string {
+    const idle = this.groups.find((item) => item.name === config.idleClip);
+    if (!idle) return `This file has no ${config.idleClip}. The clip is not copied onto another skeleton.`;
     this.clearAttackEnd();
     this.framePhase = "idle";
-    this.armPreview();
+    this.armPreview(config);
     for (const other of this.groups) {
       if (other !== idle) other.stop();
     }
     idle.play(true);
-    return "Zoro_0000 is looping on this file's skeleton. Provisional preview idle, not a verified idle.";
+    return `${config.idleClip} is looping on this file's skeleton. Provisional preview idle, not a verified idle.`;
   }
 
   /**
-   * Plays Zoro_1330 once, then loops Zoro_0000. Both must already be in this file.
+   * Plays the configured attack once, then loops the configured idle.
+   * Both clips must already be in this file.
    */
-  playAttackThenIdle(): string {
-    const idle = this.groups.find((item) => item.name === "Zoro_0000");
-    const attack = this.groups.find((item) => item.name === "Zoro_1330");
-    if (!idle || !attack) return "Needs Zoro_0000 and Zoro_1330 in this file. Clips are not retargeted.";
+  playAttackThenIdle(config: PreviewConfig): string {
+    const idle = this.groups.find((item) => item.name === config.idleClip);
+    const attack = this.groups.find((item) => item.name === config.attackClip);
+    if (!idle || !attack) return `Needs ${config.idleClip} and ${config.attackClip} in this file. Clips are not retargeted.`;
     this.clearAttackEnd();
+    this.attackClip = config.attackClip;
     this.framePhase = "attack";
-    this.armPreview();
+    this.armPreview(config);
     for (const other of this.groups) {
       if (other !== attack) other.stop();
     }
@@ -233,9 +268,9 @@ export class InspectorScene {
       this.clearAttackEnd();
       if (!this.groups.includes(idle)) return;
       this.framePhase = "idle";
-      this.blendToIdle(attack, idle);
+      this.blendToIdle(attack, idle, config.blendSeconds);
     });
-    return "Zoro_1330 plays once on this skeleton, then Zoro_0000 loops. The clip keys are unchanged.";
+    return `${config.attackClip} plays once on this skeleton, then ${config.idleClip} loops. The clip keys are unchanged.`;
   }
 
   /** Leaves the preview frame and shows every mesh again. */
@@ -243,6 +278,7 @@ export class InspectorScene {
     this.clearAttackEnd();
     this.tight = false;
     this.follow = false;
+    this.shotRadius = null;
     this.setVisibilityPreset("all");
   }
 
@@ -258,6 +294,7 @@ export class InspectorScene {
     const group = this.groups.find((item) => item.name === name);
     if (!group) return;
     this.clearAttackEnd();
+    this.shotRadius = null;
     this.hold(group);
     const frame = group.from + clamp01(normalized) * (group.to - group.from);
     group.goToFrame(frame);
@@ -298,15 +335,15 @@ export class InspectorScene {
    * Puts one sheet on one mesh. Other meshes keep the temporary map.
    * Passing an empty sheet restores that mesh.
    */
-  setMeshSheet(meshName: string, sheet: string): string {
+  setMeshSheet(meshIndex: number, sheet: string, textureDir: string): string {
     this.clearSheetTest();
     if (!sheet) return "";
-    const mesh = this.scene.getMeshByName(meshName);
-    if (!(mesh instanceof Mesh)) return `${meshName} is not loaded`;
+    const mesh = this.meshByIndex(meshIndex);
+    if (!(mesh instanceof Mesh)) return `Mesh ${meshIndex} is not loaded`;
     const source = mesh.material?.name ?? "(none)";
-    const texture = new Texture(fileUrl(`preview/textures/zoro/${sheet}.png`), this.scene, false, false);
+    const texture = new Texture(fileUrl(`${textureDir}/${sheet}.png`), this.scene, false, false);
     texture.gammaSpace = true;
-    const material = new PBRMaterial(`sheet-test-${meshName}`, this.scene);
+    const material = new PBRMaterial(`sheet-test-${meshIndex}`, this.scene);
     material.albedoTexture = texture;
     material.metallic = 0;
     material.roughness = 0.85;
@@ -314,16 +351,84 @@ export class InspectorScene {
     material.twoSidedLighting = true;
     this.sheetTest = { mesh, previous: mesh.material, material, texture };
     mesh.material = material;
-    return `${meshName} uses ${source}. Test sheet ${sheet} is on this mesh only.`;
+    return `Mesh ${meshIndex} uses ${source}. Test sheet ${sheet} is on this mesh only. The map is unchanged.`;
   }
 
-  /** Diagnostic visibility. Show all is the default. Nothing is saved. */
-  setVisibilityPreset(preset: "all" | "hide-static"): void {
+  /**
+   * Diagnostic visibility. Show all is the default. Nothing is saved.
+   * "stacks" hides lower-vertex shells only while their centers stay within the configured distance.
+   */
+  setVisibilityPreset(preset: VisibilityPreset, config?: PreviewConfig): void {
+    if (config) this.preview = config;
+    this.visibility = preset;
     if (preset === "all") {
       this.setVisibleMeshes(null);
       return;
     }
-    this.setVisibleMeshes(this.bodyMeshes().map((mesh) => mesh.name).filter((name) => !isWorldStatic(name)));
+    if (preset === "hide-static") {
+      const hidden = new Set(this.preview?.staticMeshIndices ?? []);
+      this.setVisibleMeshes(this.bodyMeshes().map((mesh) => mesh.name).filter((name) => !hidden.has(meshIndexOf(name) ?? -1)));
+      return;
+    }
+    this.applyStackVisibility();
+  }
+
+  /** Preview lighting from the character config. Off restores the flat inspection lights. */
+  setStage(enabled: boolean, config?: PreviewConfig): void {
+    if (config) this.preview = config;
+    const stage = this.preview?.stage;
+    if (!enabled || !stage) {
+      this.scene.clearColor.set(0.12, 0.13, 0.15, 1);
+      this.groundMat.diffuseColor.set(0.16, 0.17, 0.19);
+      this.sun.intensity = 0.8;
+      this.sun.direction.set(-0.4, -1, 0.3);
+      this.rim.intensity = 0;
+      return;
+    }
+    this.scene.clearColor.set(stage.clear[0], stage.clear[1], stage.clear[2], 1);
+    this.groundMat.diffuseColor.set(stage.ground[0], stage.ground[1], stage.ground[2]);
+    this.sun.intensity = stage.keyIntensity;
+    this.sun.direction.set(stage.keyDirection[0], stage.keyDirection[1], stage.keyDirection[2]);
+    this.rim.intensity = stage.rimIntensity;
+    this.rim.direction.set(stage.rimDirection[0], stage.rimDirection[1], stage.rimDirection[2]);
+  }
+
+  /** Holds one configured shot. The radius stays until the next scrub or play. */
+  showShot(config: PreviewConfig, shotId: string): string {
+    const shot = config.shots.find((item) => item.id === shotId);
+    if (!shot) return "That shot is not in the preview config.";
+    const clip = shot.clip === "attack" ? config.attackClip : config.idleClip;
+    if (!this.groups.some((group) => group.name === clip)) return `This file has no ${clip}.`;
+    this.preview = config;
+    this.framePhase = shot.clip;
+    this.scrub(clip, shot.normalized);
+    this.follow = true;
+    this.tight = true;
+    this.shotRadius = shot.radius;
+    this.camera.alpha = shot.alpha;
+    this.camera.beta = shot.beta;
+    this.aimPreview();
+    return shot.label;
+  }
+
+  /**
+   * Root and pose at the end of the attack and the start of the idle.
+   * Calls the recenter path directly. Does not edit clip keys.
+   */
+  sampleHandoff(config: PreviewConfig, recenter: boolean): HandoffRow[] {
+    const attack = this.groups.find((item) => item.name === config.attackClip);
+    const idle = this.groups.find((item) => item.name === config.idleClip);
+    if (!attack || !idle || !this.followNode) return [];
+    const previous = this.recenter;
+    this.recenter = recenter;
+    this.preview = config;
+    const rows: HandoffRow[] = [];
+    const steps = [0.3, 0.2, 0.1, 0];
+    for (const edge of steps) rows.push(this.handoffRow(attack, config.attackClip, edge, false));
+    for (const edge of [...steps].reverse()) rows.push(this.handoffRow(idle, config.idleClip, edge, true));
+    this.recenter = previous;
+    if (!previous) this.previewRoot.position.setAll(0);
+    return rows;
   }
 
   setSkeletonVisible(enabled: boolean): void {
@@ -360,12 +465,19 @@ export class InspectorScene {
   }
 
   /** Reconstructed albedo/normal assignment. Restores the loaded materials when disabled. */
-  async setTemporaryTextures(enabled: boolean): Promise<TextureNote[]> {
+  async setTemporaryTextures(enabled: boolean, config?: PreviewConfig): Promise<TextureNote[]> {
     this.clearSheetTest();
     this.temporary?.restore();
     this.temporary = null;
-    if (!enabled) return [];
-    this.temporary = await applyTemporaryLook(this.scene, this.bodyMeshes());
+    if (config) this.preview = config;
+    if (!enabled || !this.preview) return [];
+    this.temporary = await applyTemporaryLook(this.scene, this.bodyMeshes(), {
+      textureDir: this.preview.textureDir,
+      materialSlotByMesh: this.preview.materialSlotByMesh,
+      normalSheets: this.preview.normalSheets,
+      alphaTestSheets: this.preview.alphaTestSheets,
+      alphaCutOff: this.preview.alphaCutOff,
+    });
     return this.temporary.notes;
   }
 
@@ -469,11 +581,16 @@ export class InspectorScene {
   }
 
   private findFollowNode(): TransformNode | null {
-    return (
-      this.scene.getTransformNodeByName("SK_Skeleton") ??
-      this.scene.getTransformNodeByName("bone_1") ??
-      this.scene.getTransformNodeByName("bone_0")
-    );
+    const names = this.preview?.followNodes ?? FOLLOW_NODE_CANDIDATES;
+    for (const name of names) {
+      const node = this.scene.getTransformNodeByName(name);
+      if (node) return node;
+    }
+    return null;
+  }
+
+  private meshByIndex(index: number): Mesh | null {
+    return this.bodyMeshes().find((mesh) => meshIndexOf(mesh.name) === index) ?? null;
   }
 
   private bodyMeshes(): Mesh[] {
@@ -577,13 +694,15 @@ export class InspectorScene {
     }
   }
 
-  private armPreview(): void {
-    this.setVisibilityPreset("hide-static");
+  private armPreview(config: PreviewConfig): void {
+    this.preview = config;
+    this.shotRadius = null;
+    this.setVisibilityPreset("hide-static", config);
     this.follow = true;
     this.tight = true;
     this.recenter = true;
-    this.camera.alpha = Math.PI / 2;
-    this.camera.beta = 1.15;
+    this.camera.alpha = config.camera.alpha;
+    this.camera.beta = config.camera.beta;
     this.aimPreview();
   }
 
@@ -600,7 +719,8 @@ export class InspectorScene {
     for (const mesh of this.bodyMeshes()) {
       if (!mesh.isEnabled()) continue;
       const box = mesh.getBoundingInfo().boundingBox;
-      if (Vector3.Distance(box.centerWorld, origin) > 400) continue;
+      const includeDistance = this.preview?.camera.includeDistance ?? 400;
+      if (distanceToBox(origin, box.minimumWorld, box.maximumWorld) > includeDistance) continue;
       min = Vector3.Minimize(min, box.minimumWorld);
       max = Vector3.Maximize(max, box.maximumWorld);
     }
@@ -610,13 +730,20 @@ export class InspectorScene {
     }
     const size = max.subtract(min);
     this.camera.target.copyFrom(min.add(size.scale(0.5)));
+    if (this.shotRadius !== null) {
+      this.camera.radius = this.shotRadius;
+      return;
+    }
+    const camera = this.preview?.camera;
     const span = Math.max(size.x, size.y, size.z);
-    const factor = this.framePhase === "attack" ? 1.2 : 1.05;
-    this.camera.radius = Math.min(1400, Math.max(380, span * factor));
+    const factor = this.framePhase === "attack" ? (camera?.attackFactor ?? 1.2) : (camera?.idleFactor ?? 1.05);
+    const minRadius = camera?.minRadius ?? 380;
+    const maxRadius = camera?.maxRadius ?? 1400;
+    this.camera.radius = Math.min(maxRadius, Math.max(minRadius, span * factor));
   }
 
   /** Preview crossfade. Does not write clip keys. The pose can still change. */
-  private blendToIdle(attack: AnimationGroup, idle: AnimationGroup): void {
+  private blendToIdle(attack: AnimationGroup, idle: AnimationGroup, seconds: number): void {
     idle.reset();
     idle.start(true, idle.speedRatio, idle.from, idle.to, false);
     idle.setWeightForAllAnimatables(0);
@@ -624,7 +751,7 @@ export class InspectorScene {
     const started = performance.now();
     const step = () => {
       if (!this.groups.includes(idle)) return;
-      const t = Math.min(1, (performance.now() - started) / 280);
+      const t = Math.min(1, (performance.now() - started) / (seconds * 1000));
       attack.setWeightForAllAnimatables(1 - t);
       idle.setWeightForAllAnimatables(t);
       if (t < 1) {
@@ -641,8 +768,67 @@ export class InspectorScene {
     const observer = this.attackEnd;
     this.attackEnd = null;
     if (!observer) return;
-    const attack = this.groups.find((item) => item.name === "Zoro_1330");
+    const attack = this.groups.find((item) => item.name === this.attackClip);
     attack?.onAnimationGroupEndObservable.remove(observer);
+  }
+
+  private handoffRow(group: AnimationGroup, clip: string, edgeSeconds: number, fromStart: boolean): HandoffRow {
+    const duration = this.seconds(group);
+    const normalized = fromStart ? edgeSeconds / duration : 1 - edgeSeconds / duration;
+    this.hold(group);
+    group.goToFrame(group.from + clamp01(normalized) * (group.to - group.from));
+    this.followNode?.computeWorldMatrix(true);
+    this.applyRecenter();
+    this.previewRoot.computeWorldMatrix(true);
+    this.followNode?.computeWorldMatrix(true);
+    const root = this.followNode;
+    const world = root?.getAbsolutePosition() ?? Vector3.Zero();
+    const pose = this.preview?.poseBone ? this.scene.getTransformNodeByName(this.preview.poseBone) : null;
+    const poseWorld = pose?.getAbsolutePosition() ?? null;
+    return {
+      clip,
+      edgeSeconds,
+      normalized: round(normalized),
+      rootLocal: root ? [round(root.position.x), round(root.position.y), round(root.position.z)] : [0, 0, 0],
+      rootWorld: [round(world.x), round(world.y), round(world.z)],
+      poseOffset: poseWorld ? [round(poseWorld.x - world.x), round(poseWorld.y - world.y), round(poseWorld.z - world.z)] : null,
+    };
+  }
+
+  /** Hides extra shells in a stack only while the current pose keeps them together. */
+  private applyStackVisibility(): void {
+    const config = this.preview;
+    if (!config) return;
+    const meshes = this.bodyMeshes();
+    const byIndex = new Map<number, Mesh>();
+    for (const mesh of meshes) {
+      const index = meshIndexOf(mesh.name);
+      if (index !== null) byIndex.set(index, mesh);
+    }
+    const hidden = new Set<number>(config.staticMeshIndices);
+    for (const stack of config.stacks) {
+      const members = stack.indices.map((index) => byIndex.get(index)).filter((mesh): mesh is Mesh => mesh !== undefined);
+      if (members.length < 2) continue;
+      for (const mesh of members) {
+        mesh.computeWorldMatrix(true);
+        mesh.refreshBoundingInfo(true, false);
+      }
+      const keeper = members.reduce((best, mesh) => (mesh.getTotalVertices() > best.getTotalVertices() ? mesh : best));
+      const origin = keeper.getBoundingInfo().boundingBox.centerWorld;
+      const coincident = members.every(
+        (mesh) => Vector3.Distance(mesh.getBoundingInfo().boundingBox.centerWorld, origin) <= stack.coincideDistance,
+      );
+      if (!coincident) continue;
+      for (const mesh of members) {
+        if (mesh === keeper) continue;
+        const index = meshIndexOf(mesh.name);
+        if (index !== null) hidden.add(index);
+      }
+    }
+    for (const mesh of meshes) {
+      const index = meshIndexOf(mesh.name);
+      mesh.setEnabled(index === null || !hidden.has(index));
+    }
   }
 
   private stop(): void {
@@ -651,8 +837,11 @@ export class InspectorScene {
   }
 }
 
-function isWorldStatic(name: string): boolean {
-  return name === "Mesh_3" || name === "Mesh_22" || name === "Mesh_23" || name === "Mesh_24" || /_(0003|0022|0023|0024)$/.test(name);
+function distanceToBox(point: Vector3, min: Vector3, max: Vector3): number {
+  const dx = point.x < min.x ? min.x - point.x : point.x > max.x ? point.x - max.x : 0;
+  const dy = point.y < min.y ? min.y - point.y : point.y > max.y ? point.y - max.y : 0;
+  const dz = point.z < min.z ? min.z - point.z : point.z > max.z ? point.z - max.z : 0;
+  return Math.hypot(dx, dy, dz);
 }
 
 function clamp01(value: number): number {

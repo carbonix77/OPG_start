@@ -41,7 +41,7 @@ export const LOCAL_ASSETS: LocalAsset[] = [
     id: "noesis-present",
     label: "Noesis glTF provisional idle and 1330",
     relativePath: "private-assets/validation/merge-present/merged.gltf",
-    note: "Zoro_0000 and Zoro_1330 on SK_Skeleton. Provisional preview only. Untextured. Not retargeted onto the GLB.",
+    note: "Zoro_0000 and Zoro_1330 on SK_Skeleton. Provisional preview only. Textures use the matched GLB slots. Not retargeted onto the GLB.",
   },
   {
     id: "noesis-next",

@@ -1,8 +1,6 @@
 import { PBRMaterial, Texture, type Material, type Mesh, type Scene } from "@babylonjs/core";
 import { fileUrl } from "./assets";
-
-/** Sheets that have a sibling `_n.png` in preview/textures/zoro. Sword sheets do not. */
-const NORMAL_SHEETS = new Set(["skin", "cloth", "face", "hair"]);
+import { meshIndexOf } from "./previewConfig";
 
 export interface TextureNote {
   material: string;
@@ -15,15 +13,14 @@ export interface TextureNote {
   via: "material-name" | "mesh-index";
 }
 
-/**
- * GLB primitive material slot for mesh index N.
- * Noesis submesh N has the same vertex count. This is not a recovered G1T index.
- * Slots 11/12 and 20/21 are swapped. Material 20 is shared by meshes 21–24.
- */
-const GLB_MATERIAL_BY_MESH = [
-  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 11, 13, 14, 15, 16, 17, 18, 19, 21, 20, 20, 20, 20, 22, 23, 24, 25, 26, 27, 28,
-  29, 30, 31, 32, 33, 34, 35, 36,
-];
+export interface LookOptions {
+  textureDir: string;
+  /** GLB material slot for mesh index N. Omitted when the file already uses Material_N. */
+  materialSlotByMesh?: number[] | null;
+  normalSheets: string[];
+  alphaTestSheets: string[];
+  alphaCutOff: number;
+}
 
 export interface TemporaryLook {
   notes: TextureNote[];
@@ -31,15 +28,16 @@ export interface TemporaryLook {
 }
 
 /**
- * Applies preview/textures/zoro/map.json.
+ * Applies map.json from the configured texture directory.
  * Materials named Material_N use that number.
  * Other meshes use the GLB material slot of the same mesh index when the vertex counts match.
  * The map is reconstructed. It is not the game shader and it is not a recovered G1T index.
  * UV invertY is false, matching the glTF meshes and the older viewer.
  * Normals use Babylon's DirectX reader, so OpenGL-style maps set invertNormalMapY.
  */
-export async function applyTemporaryLook(scene: Scene, meshes: Mesh[]): Promise<TemporaryLook> {
-  const response = await fetch(fileUrl("preview/textures/zoro/map.json"));
+export async function applyTemporaryLook(scene: Scene, meshes: Mesh[], options: LookOptions): Promise<TemporaryLook> {
+  const slots = options.materialSlotByMesh ?? null;
+  const response = await fetch(fileUrl(`${options.textureDir}/map.json`));
   if (!response.ok) throw new Error(`texture map HTTP ${response.status}`);
   const assignment = (await response.json()) as Record<string, string>;
   const images = new Map<string, { albedo: Texture; normal: Texture | null }>();
@@ -50,13 +48,9 @@ export async function applyTemporaryLook(scene: Scene, meshes: Mesh[]): Promise<
 
   for (const mesh of meshes) {
     const named = mesh.material ? /^Material_(\d+)$/.exec(mesh.material.name) : null;
-    const meshIndex = /(?:^Mesh_|submesh_)(\d+)(?:_|$)/.exec(mesh.name);
+    const meshIndex = meshIndexOf(mesh.name);
     const via: TextureNote["via"] = named ? "material-name" : "mesh-index";
-    const index = named
-      ? Number(named[1])
-      : meshIndex
-        ? (GLB_MATERIAL_BY_MESH[Number(meshIndex[1])] ?? null)
-        : null;
+    const index = named ? Number(named[1]) : meshIndex !== null && slots ? (slots[meshIndex] ?? null) : null;
     const key = `${via}:${index ?? "none"}`;
     const group = groups.get(key) ?? { label: mesh.material?.name ?? mesh.name, index, via, meshes: [] };
     group.meshes.push(mesh);
@@ -72,11 +66,11 @@ export async function applyTemporaryLook(scene: Scene, meshes: Mesh[]): Promise<
     }
     let pair = images.get(sheet);
     if (!pair) {
-      const albedo = new Texture(fileUrl(`preview/textures/zoro/${sheet}.png`), scene, false, false);
+      const albedo = new Texture(fileUrl(`${options.textureDir}/${sheet}.png`), scene, false, false);
       albedo.gammaSpace = true;
       let normal: Texture | null = null;
-      if (NORMAL_SHEETS.has(sheet)) {
-        normal = new Texture(fileUrl(`preview/textures/zoro/${sheet}_n.png`), scene, false, false);
+      if (options.normalSheets.includes(sheet)) {
+        normal = new Texture(fileUrl(`${options.textureDir}/${sheet}_n.png`), scene, false, false);
         normal.gammaSpace = false;
       }
       pair = { albedo, normal };
@@ -92,10 +86,10 @@ export async function applyTemporaryLook(scene: Scene, meshes: Mesh[]): Promise<
       material.bumpTexture = pair.normal;
       material.invertNormalMapY = true;
     }
-    if (sheet === "hair") {
+    if (options.alphaTestSheets.includes(sheet)) {
       material.useAlphaFromAlbedoTexture = true;
       material.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHATEST;
-      material.alphaCutOff = 0.25;
+      material.alphaCutOff = options.alphaCutOff;
     }
     created.push(material);
     for (const mesh of group.meshes) {
