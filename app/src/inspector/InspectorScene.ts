@@ -27,6 +27,7 @@ import { assetUrl, fileUrl, type LocalAsset } from "./assets";
 import {
   FOLLOW_NODE_CANDIDATES,
   meshIndexOf,
+  registryCheck,
   type CameraKey,
   type PreviewConfig,
   type PreviewEffect,
@@ -114,6 +115,8 @@ export interface CinematicMeasure {
   maxBetaStep: number;
   maxRadiusStep: number;
   maxTargetStep: number;
+  /** Clip and normalized time where the alpha step was largest. */
+  maxAlphaAt: { clip: string; normalized: number } | null;
   minFps: number;
   p95FrameMs: number;
   rootWorldZ: [number, number];
@@ -188,6 +191,9 @@ export class InspectorScene {
   private readonly cameraOffset = new Vector3();
   private readonly trailSide = new Vector3();
   private readonly trailDir = new Vector3();
+  private readonly tipPoint = new Vector3();
+  private readonly tipOrigin = new Vector3();
+  private readonly tipDir = new Vector3();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -236,12 +242,17 @@ export class InspectorScene {
     });
   }
 
-  setPreviewConfig(config: PreviewConfig): void {
+  setPreviewConfig(config: PreviewConfig | null): void {
     this.preview = config;
   }
 
   currentPreview(): PreviewConfig | null {
     return this.preview;
+  }
+
+  /** Registry probe. It does not load a model. */
+  previewRegistry(): ReturnType<typeof registryCheck> {
+    return registryCheck();
   }
 
   async load(asset: LocalAsset): Promise<SceneFacts> {
@@ -320,7 +331,8 @@ export class InspectorScene {
    * Loops the configured idle clip on the skeleton already in this file.
    * Provisional preview idle. Does not retarget another file's clip.
    */
-  playProvisionalIdle(config: PreviewConfig): string {
+  playProvisionalIdle(config: PreviewConfig | null): string {
+    if (!config) return "This file has no preview config.";
     const idle = this.groups.find((item) => item.name === config.idleClip);
     if (!idle) return `This file has no ${config.idleClip}. The clip is not copied onto another skeleton.`;
     this.leaveTimeline();
@@ -338,7 +350,8 @@ export class InspectorScene {
    * Plays the configured attack once, then loops the configured idle.
    * Both clips must already be in this file.
    */
-  playAttackThenIdle(config: PreviewConfig): string {
+  playAttackThenIdle(config: PreviewConfig | null): string {
+    if (!config) return "This file has no preview config.";
     const idle = this.groups.find((item) => item.name === config.idleClip);
     const attack = this.groups.find((item) => item.name === config.attackClip);
     if (!idle || !attack) return `Needs ${config.idleClip} and ${config.attackClip} in this file. Clips are not retargeted.`;
@@ -451,7 +464,7 @@ export class InspectorScene {
    * Crops one existing sheet onto the configured mouth mesh.
    * The crop is a preview stand-in. It is not an original UV assignment.
    */
-  setMouthPreview(enabled: boolean, config?: PreviewConfig): string {
+  setMouthPreview(enabled: boolean, config?: PreviewConfig | null): string {
     this.clearMouthPreview();
     if (config) this.preview = config;
     const blade = this.preview?.mouthBlade;
@@ -481,7 +494,7 @@ export class InspectorScene {
    * Diagnostic visibility. Show all is the default. Nothing is saved.
    * "stacks" hides lower-vertex shells only while their centers stay within the configured distance.
    */
-  setVisibilityPreset(preset: VisibilityPreset, config?: PreviewConfig): void {
+  setVisibilityPreset(preset: VisibilityPreset, config?: PreviewConfig | null): void {
     if (config) this.preview = config;
     this.visibility = preset;
     if (preset === "all") {
@@ -497,7 +510,7 @@ export class InspectorScene {
   }
 
   /** Preview lighting from the character config. Off restores the flat inspection lights. */
-  setStage(enabled: boolean, config?: PreviewConfig): void {
+  setStage(enabled: boolean, config?: PreviewConfig | null): void {
     if (config) this.preview = config;
     const stage = this.preview?.stage;
     if (!enabled || !stage) {
@@ -523,7 +536,8 @@ export class InspectorScene {
   }
 
   /** Holds one configured shot. The radius stays until the next scrub or play. */
-  showShot(config: PreviewConfig, shotId: string): string {
+  showShot(config: PreviewConfig | null, shotId: string): string {
+    if (!config) return "This file has no preview config.";
     const shot = config.shots.find((item) => item.id === shotId);
     if (!shot) return "That shot is not in the preview config.";
     const clip = shot.clip === "attack" ? config.attackClip : config.idleClip;
@@ -545,10 +559,10 @@ export class InspectorScene {
    * Plays the configured attack, eases the camera back to idle, and can show preview effects.
    * Orbit is detached until setCameraDrive("orbit"). Clip keys are not edited.
    */
-  playCinematic(config: PreviewConfig, effects: boolean): string {
+  playCinematic(config: PreviewConfig | null, effects: boolean): string {
+    if (!config?.cinematic) return "This character has no cinematic timeline.";
     const idle = this.groups.find((item) => item.name === config.idleClip);
     const attack = this.groups.find((item) => item.name === config.attackClip);
-    if (!config.cinematic) return "This character has no cinematic timeline.";
     if (!idle || !attack) return `Needs ${config.idleClip} and ${config.attackClip} in this file. Clips are not retargeted.`;
     this.leaveTimeline();
     this.clearAttackEnd();
@@ -566,11 +580,17 @@ export class InspectorScene {
     this.timelineArmed = true;
     this.cameraDrive = "timeline";
     this.setControls(false);
+    this.camera.inertialAlphaOffset = 0;
+    this.camera.inertialBetaOffset = 0;
+    this.camera.inertialRadiusOffset = 0;
     for (const other of this.groups) {
       if (other !== attack) other.stop();
     }
     attack.reset();
     attack.play(false);
+    this.applyRecenter();
+    this.followNode?.computeWorldMatrix(true);
+    this.applyTimeline();
     this.attackEnd = attack.onAnimationGroupEndObservable.add(() => {
       this.clearAttackEnd();
       if (!this.groups.includes(idle)) return;
@@ -587,6 +607,48 @@ export class InspectorScene {
     return `Cinematic camera is driving ${config.attackClip}, then ${config.idleClip}. Orbit debug is off. ${fx} ${blade}`;
   }
 
+  /**
+   * Records the cinematic canvas to a WebM blob. No audio track.
+   * The caller decides whether to keep the file. This does not write to disk.
+   */
+  recordCinematic(config: PreviewConfig | null, effects: boolean): Promise<{ blob: Blob; width: number; height: number; seconds: number } | null> {
+    const attack = config ? this.groups.find((item) => item.name === config.attackClip) : undefined;
+    if (!config?.cinematic || !attack || typeof MediaRecorder === "undefined") return Promise.resolve(null);
+    const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8") ? "video/webm;codecs=vp8" : "video/webm";
+    let recorder: MediaRecorder;
+    const chunks: Blob[] = [];
+    try {
+      const stream = this.canvas.captureStream(30);
+      recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2_500_000 });
+    } catch {
+      return Promise.resolve(null);
+    }
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    };
+    const message = this.playCinematic(config, effects);
+    if (!message.startsWith("Cinematic")) return Promise.resolve(null);
+    recorder.start(250);
+    const seconds = this.seconds(attack) + config.blendSeconds + 0.35;
+    return new Promise((resolve) => {
+      window.setTimeout(() => {
+        const finish = () => {
+          resolve({
+            blob: new Blob(chunks, { type: mime }),
+            width: this.canvas.width,
+            height: this.canvas.height,
+            seconds,
+          });
+        };
+        if (recorder.state === "inactive") finish();
+        else {
+          recorder.onstop = finish;
+          recorder.stop();
+        }
+      }, seconds * 1000);
+    });
+  }
+
   /** Stops the timeline from writing the camera and gives orbit back. */
   setCameraDrive(mode: "orbit" | "timeline"): void {
     if (mode === "timeline" && !this.timelineArmed) return;
@@ -595,7 +657,7 @@ export class InspectorScene {
   }
 
   /** Builds or removes the configured preview effects. They are not game effects. */
-  setPreviewEffects(enabled: boolean, config?: PreviewConfig): void {
+  setPreviewEffects(enabled: boolean, config?: PreviewConfig | null): void {
     if (config) this.preview = config;
     this.effectsEnabled = enabled;
     if (!enabled) {
@@ -719,7 +781,7 @@ export class InspectorScene {
   }
 
   /** Reconstructed albedo/normal assignment. Restores the loaded materials when disabled. */
-  async setTemporaryTextures(enabled: boolean, config?: PreviewConfig): Promise<TextureNote[]> {
+  async setTemporaryTextures(enabled: boolean, config?: PreviewConfig | null): Promise<TextureNote[]> {
     this.clearMouthPreview();
     this.clearSheetTest();
     this.temporary?.restore();
@@ -1241,6 +1303,7 @@ export class InspectorScene {
     const anchor = new TransformNode(`preview-fx-${effect.id}`, this.scene);
     anchor.parent = this.scene.getTransformNodeByName(effect.bone) ?? this.followNode;
     anchor.position.set(effect.offset[0], effect.offset[1], effect.offset[2]);
+    anchor.metadata = { tipAxis: effect.offset };
     anchor.rotation.set(effect.rotation[0], effect.rotation[1], effect.rotation[2]);
     this.placeOnMeshTip(effect.tipMeshIndex, anchor);
     const material = new StandardMaterial(`preview-fx-mat-${effect.id}`, this.scene);
@@ -1299,9 +1362,10 @@ export class InspectorScene {
   }
 
   private recordTrail(fx: RuntimeEffect): void {
-    if (fx.samples.length === 0) this.placeOnMeshTip(fx.tipMeshIndex, fx.anchor);
+    this.placeOnMeshTip(fx.tipMeshIndex, fx.anchor);
     const pos = fx.anchor.getAbsolutePosition().clone();
     const last = fx.samples[fx.samples.length - 1];
+    if (last && Vector3.DistanceSquared(last, pos) > 30 * 30) fx.samples.length = 0;
     if (!last || Vector3.DistanceSquared(last, pos) > 0.16) fx.samples.push(pos);
     if (fx.samples.length > 10) fx.samples.shift();
     if (fx.samples.length >= 2) this.redrawTrail(fx);
@@ -1337,55 +1401,69 @@ export class InspectorScene {
     fx.mesh.setEnabled(true);
   }
 
-  /** Rounds the sampled bone path so a short ribbon does not show its corners. */
+  /** Softens corners without letting the ribbon leave the sampled tip path. */
   private smoothPath(samples: Vector3[]): Vector3[] {
     if (samples.length < 3) return samples.map((sample) => sample.clone());
-    const steps = 3;
-    const path: Vector3[] = [];
-    for (let i = 0; i < samples.length - 1; i += 1) {
-      const p0 = samples[Math.max(0, i - 1)];
-      const p1 = samples[i];
-      const p2 = samples[i + 1];
-      const p3 = samples[Math.min(samples.length - 1, i + 2)];
-      for (let step = 0; step < steps; step += 1) path.push(this.catmull(p0, p1, p2, p3, step / steps));
-    }
-    path.push(samples[samples.length - 1].clone());
-    return path;
-  }
-
-  private catmull(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, t: number): Vector3 {
-    const t2 = t * t;
-    const t3 = t2 * t;
-    const axis = (a: number, b: number, c: number, d: number) =>
-      0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
-    return new Vector3(axis(p0.x, p1.x, p2.x, p3.x), axis(p0.y, p1.y, p2.y, p3.y), axis(p0.z, p1.z, p2.z, p3.z));
+    return samples.map((sample, index) => {
+      if (index === 0 || index === samples.length - 1) return sample.clone();
+      return sample.add(samples[index - 1]).add(samples[index + 1]).scale(1 / 3);
+    });
   }
 
   /**
-   * Moves the anchor to the loaded mesh corner farthest from the bone.
-   * Keeps the config offset when that mesh is missing.
+   * Puts the anchor on the skinned vertex farthest from the bone toward the mesh center.
+   * A box corner can sit beside the blade. The config offset stays if the mesh is missing.
    */
   private placeOnMeshTip(tipMeshIndex: number | null, anchor: TransformNode): void {
     const bone = anchor.parent;
     if (tipMeshIndex === null || !(bone instanceof TransformNode)) return;
+    if (anchor.metadata?.tipLocked) return;
     const mesh = this.bodyMeshes().find((item) => meshIndexOf(item.name) === tipMeshIndex);
     if (!mesh) return;
-    mesh.refreshBoundingInfo(true, false);
-    mesh.computeWorldMatrix(true);
     bone.computeWorldMatrix(true);
+    mesh.skeleton?.prepare(true);
+    mesh.computeWorldMatrix(true);
+    const skinned = mesh.getPositionData(true, false);
+    if (!skinned || skinned.length < 3) return;
+    const world = mesh.getWorldMatrix();
     const origin = bone.getAbsolutePosition();
-    let farthest: Vector3 | null = null;
-    let best = 0;
-    for (const corner of mesh.getBoundingInfo().boundingBox.vectorsWorld) {
-      const distance = Vector3.DistanceSquared(corner, origin);
-      if (distance > best) {
-        best = distance;
-        farthest = corner;
+    let cx = 0;
+    let cy = 0;
+    let cz = 0;
+    const scratch = this.tipPoint;
+    for (let i = 0; i < skinned.length; i += 3) {
+      Vector3.TransformCoordinatesFromFloatsToRef(skinned[i], skinned[i + 1], skinned[i + 2], world, scratch);
+      cx += scratch.x;
+      cy += scratch.y;
+      cz += scratch.z;
+    }
+    const axis = anchor.metadata?.tipAxis as [number, number, number] | undefined;
+    this.tipPoint.set(axis?.[0] ?? cx, axis?.[1] ?? cy, axis?.[2] ?? cz);
+    if (axis) {
+      Vector3.TransformNormalToRef(this.tipPoint, bone.getWorldMatrix(), this.tipDir);
+    } else {
+      this.tipDir.set(cx / skinned.length - origin.x, cy / skinned.length - origin.y, cz / skinned.length - origin.z);
+    }
+    if (this.tipDir.lengthSquared() < 1e-4) return;
+    this.tipDir.normalize();
+    let reach = 1;
+    let found = false;
+    for (let i = 0; i < skinned.length; i += 3) {
+      Vector3.TransformCoordinatesFromFloatsToRef(skinned[i], skinned[i + 1], skinned[i + 2], world, scratch);
+      const dot =
+        (scratch.x - origin.x) * this.tipDir.x +
+        (scratch.y - origin.y) * this.tipDir.y +
+        (scratch.z - origin.z) * this.tipDir.z;
+      if (dot > reach) {
+        reach = dot;
+        this.tipOrigin.copyFrom(scratch);
+        found = true;
       }
     }
-    if (!farthest || best < 1) return;
-    const local = Vector3.TransformCoordinates(farthest, bone.getWorldMatrix().clone().invert());
+    if (!found) return;
+    const local = Vector3.TransformCoordinates(this.tipOrigin, bone.getWorldMatrix().clone().invert());
     anchor.position.copyFrom(local);
+    anchor.metadata = { ...(anchor.metadata ?? {}), tipLocked: true };
   }
 
   /** Stretches the bloom along the measured tip instead of leaving a round flash. */
@@ -1428,7 +1506,7 @@ export class InspectorScene {
       const steps = 12;
       for (let i = 0; i <= steps; i += 1) {
         this.poseClip(this.preview?.attackClip ?? "", from + ((normalized - from) * i) / steps);
-        if (i === 0) this.placeOnMeshTip(fx.tipMeshIndex, fx.anchor);
+        this.placeOnMeshTip(fx.tipMeshIndex, fx.anchor);
         fx.anchor.computeWorldMatrix(true);
         fx.samples.push(fx.anchor.getAbsolutePosition().clone());
       }
@@ -1593,6 +1671,7 @@ function emptyMeasure(error: string): CinematicMeasure {
     maxBetaStep: 0,
     maxRadiusStep: 0,
     maxTargetStep: 0,
+    maxAlphaAt: null,
     minFps: 0,
     p95FrameMs: 0,
     rootWorldZ: [0, 0],
@@ -1609,6 +1688,7 @@ function summarizeMeasure(frames: CinematicFrame[], gaps: number[], seconds: num
   let maxBeta = 0;
   let maxRadius = 0;
   let maxTarget = 0;
+  let maxAlphaAt: { clip: string; normalized: number } | null = null;
   let worldMin = Number.POSITIVE_INFINITY;
   let worldMax = Number.NEGATIVE_INFINITY;
   for (let i = 0; i < frames.length; i += 1) {
@@ -1617,7 +1697,9 @@ function summarizeMeasure(frames: CinematicFrame[], gaps: number[], seconds: num
     worldMax = Math.max(worldMax, frame.rootWorldZ);
     if (i === 0) continue;
     const prev = frames[i - 1];
-    maxAlpha = Math.max(maxAlpha, angleDelta(prev.alpha, frame.alpha));
+    const alphaStep = angleDelta(prev.alpha, frame.alpha);
+    if (alphaStep >= maxAlpha) maxAlphaAt = { clip: frame.clip, normalized: frame.normalized };
+    maxAlpha = Math.max(maxAlpha, alphaStep);
     maxBeta = Math.max(maxBeta, Math.abs(frame.beta - prev.beta));
     maxRadius = Math.max(maxRadius, Math.abs(frame.radius - prev.radius));
     maxTarget = Math.max(
@@ -1659,6 +1741,7 @@ function summarizeMeasure(frames: CinematicFrame[], gaps: number[], seconds: num
     maxBetaStep: round(maxBeta),
     maxRadiusStep: round(maxRadius),
     maxTargetStep: round(maxTarget),
+    maxAlphaAt: maxAlphaAt ? { clip: maxAlphaAt.clip, normalized: round(maxAlphaAt.normalized) } : null,
     minFps: gaps.length ? round(1000 / Math.max(...gaps)) : 0,
     p95FrameMs: round(percentile(gaps, 0.95)),
     rootWorldZ: [round(worldMin), round(worldMax)],

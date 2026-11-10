@@ -242,18 +242,18 @@ export function App() {
           16:9 frame. The preview buttons turn this on.
         </label>
         <label>
-          Mesh {preview.mouthMeshIndex ?? "—"} sheet test
+          Mesh {preview?.mouthMeshIndex ?? "—"} sheet test
           <select
             value={sheet}
             onChange={(event) => {
               const value = event.target.value;
               setSheet(value);
-              if (preview.mouthMeshIndex === null) return;
+              if (!preview || preview.mouthMeshIndex === null) return;
               setSheetNote(sceneRef.current?.setMeshSheet(preview.mouthMeshIndex, value, preview.textureDir) ?? "");
             }}
           >
             <option value="">Map assignment</option>
-            {preview.sheetCandidates.map((name) => (
+            {(preview?.sheetCandidates ?? []).map((name) => (
               <option key={name} value={name}>
                 {name}
               </option>
@@ -330,6 +330,40 @@ export function App() {
           >
             Cinematic
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!preview || !sceneRef.current) {
+                setPreviewNote("This file has no cinematic to record.");
+                return;
+              }
+              setPreviewNote("Recording the cinematic. The file stays on this machine.");
+              void sceneRef.current.recordCinematic(preview, previewEffects).then(async (result) => {
+                if (!result || result.blob.size === 0) {
+                  setPreviewNote("This file has no cinematic to record.");
+                  return;
+                }
+                const url = URL.createObjectURL(result.blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = "cinematic-preview.webm";
+                link.click();
+                URL.revokeObjectURL(url);
+                let saved = "The browser download was started.";
+                try {
+                  const response = await fetch("/__local-recording", { method: "POST", body: result.blob });
+                  saved = response.ok ? await response.text() : `Local save failed (${response.status}).`;
+                } catch {
+                  saved = "The local save endpoint was not available.";
+                }
+                setPreviewNote(
+                  `Recording ${result.width}×${result.height}, about ${result.seconds.toFixed(2)} s, no audio. ${saved}`,
+                );
+              });
+            }}
+          >
+            Save cinematic recording
+          </button>
         </div>
         <label className="check">
           <input
@@ -356,7 +390,7 @@ export function App() {
           Orbit camera. Debug. The timeline stops driving the view.
         </label>
         <div className="row">
-          {preview.shots.map((shot) => (
+          {(preview?.shots ?? []).map((shot) => (
             <button
               key={shot.id}
               type="button"

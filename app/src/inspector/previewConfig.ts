@@ -320,8 +320,67 @@ export const ZORO_PREVIEW: PreviewConfig = {
   },
 };
 
-export function previewForAsset(_assetId: string): PreviewConfig {
-  return ZORO_PREVIEW;
+/** Generated config. It has no character mesh, clip, or texture. */
+export const FIXTURE_PREVIEW: PreviewConfig = {
+  id: "fixture",
+  textureDir: "",
+  normalSheets: [],
+  alphaTestSheets: [],
+  alphaCutOff: 0.5,
+  followNodes: ["fixture-bone"],
+  idleClip: "fixture-idle",
+  attackClip: "fixture-attack",
+  mouthMeshIndex: null,
+  poseBone: null,
+  sheetCandidates: [],
+  materialSlotByMesh: null,
+  staticMeshIndices: [],
+  stacks: [],
+  swordGroups: [],
+  mouthBlade: null,
+  handoffSeconds: 0,
+  blendSeconds: 0,
+  camera: {
+    alpha: 0,
+    beta: 1,
+    idleFactor: 1,
+    attackFactor: 1,
+    minRadius: 1,
+    maxRadius: 10,
+    includeDistance: 1,
+  },
+  stage: {
+    clear: [0, 0, 0],
+    ground: [0, 0, 0],
+    keyIntensity: 0,
+    keyDirection: [0, -1, 0],
+    rimIntensity: 0,
+    rimDirection: [0, -1, 0],
+    fogDensity: 0,
+  },
+  shots: [],
+  cinematic: null,
+};
+
+const PREVIEW_REGISTRY: Record<string, PreviewConfig> = {
+  "noesis-present": ZORO_PREVIEW,
+  fixture: FIXTURE_PREVIEW,
+};
+
+/** Null when the id is not registered. Unknown files do not inherit another character. */
+export function previewForAsset(assetId: string): PreviewConfig | null {
+  return PREVIEW_REGISTRY[assetId] ?? null;
+}
+
+/** Checks the registry without loading a model. */
+export function registryCheck(): { present: string | null; fixture: string | null; unknown: boolean; fixtureMouth: number | null } {
+  const fixture = previewForAsset("fixture");
+  return {
+    present: previewForAsset("noesis-present")?.id ?? null,
+    fixture: fixture?.id ?? null,
+    unknown: previewForAsset("not-a-character") === null,
+    fixtureMouth: fixture?.mouthMeshIndex ?? null,
+  };
 }
 
 export function meshIndexOf(name: string): number | null {
