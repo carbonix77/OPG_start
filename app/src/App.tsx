@@ -47,6 +47,8 @@ export function App() {
   const [status, setStatus] = useState("Loading");
   const [previewNote, setPreviewNote] = useState("");
   const [mode, setMode] = useState<"inspector" | "battle">("inspector");
+  /** Inspector: keep owner hide lists on (default). Uncheck for Show All diagnostics. */
+  const [respectHidePreset, setRespectHidePreset] = useState(true);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -88,11 +90,13 @@ export function App() {
     setBehaviorId("");
     setBodyFrame(false);
     setPhantoms(false);
+    setRespectHidePreset(true);
     inspector.setBodyFrame(false);
     const config = previewForAsset(assetId);
     inspector.setPreviewConfig(config);
     inspector.setStage(false);
     inspector.setVisibilityPreset("all");
+    inspector.setRespectHidePreset(true);
     void inspector.load(asset).then((next) => {
       if (cancel) return;
       setFacts(next);
@@ -417,6 +421,21 @@ export function App() {
             <option value="stacks">Experimental: hide coincident shells. Not proven for every clip.</option>
           </select>
         </label>
+        {(preview?.excludedMeshIndices.length ?? 0) > 0 ? (
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={respectHidePreset}
+              onChange={(event) => {
+                const enabled = event.target.checked;
+                setRespectHidePreset(enabled);
+                const next = sceneRef.current?.setRespectHidePreset(enabled);
+                if (next) setFacts(next);
+              }}
+            />
+            Respect owner hide preset ({preview?.excludedMeshIndices.length} meshes). Uncheck = Show All diagnostic.
+          </label>
+        ) : null}
         <label className="check">
           <input
             type="checkbox"

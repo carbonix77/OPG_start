@@ -1,0 +1,380 @@
+[
+  {
+    "character": "sanji",
+    "source": "private-assets/validation/merge-sanji/merged.gltf",
+    "total_meshes": 38,
+    "shown_count": 31,
+    "hidden_count": 7,
+    "clips": [
+      "Sanji_0000",
+      "Sanji_0500",
+      "Sanji_1290",
+      "Sanji_1300",
+      "Sanji_1310",
+      "Sanji_1330"
+    ],
+    "hidden": [
+      {
+        "index": 0,
+        "name": "model_0_submesh_0",
+        "verts": 88,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide; verify if outfit shell or corrupt",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 5,
+        "name": "model_0_submesh_5",
+        "verts": 1284,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 6,
+        "name": "model_0_submesh_6",
+        "verts": 342,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 7,
+        "name": "model_0_submesh_7",
+        "verts": 530,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 10,
+        "name": "model_0_submesh_10",
+        "verts": 871,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "CRITICAL: 871-vert Noesis-only cloth (no GLB twin); previously remapped to cloth slot 10, now hidden",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 12,
+        "name": "model_0_submesh_12",
+        "verts": 581,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 24,
+        "name": "model_0_submesh_24",
+        "verts": 309,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      }
+    ]
+  },
+  {
+    "character": "nami",
+    "source": "private-assets/validation/merge-nami/merged.gltf",
+    "total_meshes": 24,
+    "shown_count": 11,
+    "hidden_count": 13,
+    "clips": [
+      "Nami_0000",
+      "Nami_NewWorld_0500",
+      "Nami_NewWorld_1300"
+    ],
+    "hidden": [
+      {
+        "index": 4,
+        "name": "model_0_submesh_4",
+        "verts": 552,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 5,
+        "name": "model_0_submesh_5",
+        "verts": 240,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 6,
+        "name": "model_0_submesh_6",
+        "verts": 552,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 7,
+        "name": "model_0_submesh_7",
+        "verts": 240,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 8,
+        "name": "model_0_submesh_8",
+        "verts": 2080,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 9,
+        "name": "model_0_submesh_9",
+        "verts": 98,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 10,
+        "name": "model_0_submesh_10",
+        "verts": 407,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 11,
+        "name": "model_0_submesh_11",
+        "verts": 323,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 12,
+        "name": "model_0_submesh_12",
+        "verts": 39,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 17,
+        "name": "model_0_submesh_17",
+        "verts": 1355,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 18,
+        "name": "model_0_submesh_18",
+        "verts": 2505,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 20,
+        "name": "model_0_submesh_20",
+        "verts": 439,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 23,
+        "name": "model_0_submesh_23",
+        "verts": 747,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      }
+    ]
+  },
+  {
+    "character": "usopp",
+    "source": "private-assets/validation/merge-usopp/merged.gltf",
+    "total_meshes": 43,
+    "shown_count": 26,
+    "hidden_count": 17,
+    "clips": [
+      "Usopp_0000",
+      "Usopp_0500",
+      "Usopp_1300"
+    ],
+    "hidden": [
+      {
+        "index": 0,
+        "name": "model_0_submesh_0",
+        "verts": 299,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 4,
+        "name": "model_0_submesh_4",
+        "verts": 98,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 9,
+        "name": "model_0_submesh_9",
+        "verts": 123,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 10,
+        "name": "model_0_submesh_10",
+        "verts": 287,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 11,
+        "name": "model_0_submesh_11",
+        "verts": 234,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 12,
+        "name": "model_0_submesh_12",
+        "verts": 246,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 13,
+        "name": "model_0_submesh_13",
+        "verts": 1029,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 14,
+        "name": "model_0_submesh_14",
+        "verts": 154,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 16,
+        "name": "model_0_submesh_16",
+        "verts": 169,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 17,
+        "name": "model_0_submesh_17",
+        "verts": 42,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 19,
+        "name": "model_0_submesh_19",
+        "verts": 141,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 20,
+        "name": "model_0_submesh_20",
+        "verts": 634,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 21,
+        "name": "model_0_submesh_21",
+        "verts": 849,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 24,
+        "name": "model_0_submesh_24",
+        "verts": 164,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 31,
+        "name": "model_0_submesh_31",
+        "verts": 523,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 33,
+        "name": "model_0_submesh_33",
+        "verts": 2628,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      },
+      {
+        "index": 35,
+        "name": "model_0_submesh_35",
+        "verts": 141,
+        "skinned": true,
+        "material": "",
+        "why_hidden": "Owner hide list (provisional presentation)",
+        "safe_to_hide": "unknown \u2014 needs solo-mesh visual + clip proof"
+      }
+    ]
+  }
+]

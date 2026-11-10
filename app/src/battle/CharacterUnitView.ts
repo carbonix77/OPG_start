@@ -43,6 +43,12 @@ export class CharacterUnitView {
   private slot = new Vector3();
   private recenterObserver: Observer<Scene> | null = null;
   private look: TemporaryLook | null = null;
+  /** Owner hide indices. Presentation default hides them; Show All can re-enable. */
+  private excludedIndices = new Set<number>();
+  /** Every skinned body mesh including currently excluded ones (not driver_*). */
+  private bodyMeshes: Mesh[] = [];
+  /** When true, excluded indices are drawn for diagnostics. Default false. */
+  private showAllMeshes = false;
   assetId = "";
 
   constructor(
@@ -78,7 +84,8 @@ export class CharacterUnitView {
     for (const mesh of container.meshes) {
       if (!mesh.parent) mesh.setParent(this.root);
     }
-    const excluded = new Set(preview?.excludedMeshIndices ?? []);
+    this.excludedIndices = new Set(preview?.excludedMeshIndices ?? []);
+    this.bodyMeshes = [];
     const body: Mesh[] = [];
     for (const mesh of container.meshes) {
       if (!(mesh instanceof Mesh) || mesh.getTotalVertices() <= 0) continue;
@@ -89,10 +96,12 @@ export class CharacterUnitView {
       }
       const hit = /(?:Mesh_|submesh_)(\d+)(?:_|$)/.exec(mesh.name);
       const index = hit ? Number(hit[1]) : null;
-      if (index !== null && excluded.has(index)) {
+      this.bodyMeshes.push(mesh);
+      if (index !== null && this.excludedIndices.has(index) && !this.showAllMeshes) {
         mesh.setEnabled(false);
         continue;
       }
+      mesh.setEnabled(true);
       body.push(mesh);
     }
     this.groups = [...container.animationGroups];
@@ -166,7 +175,50 @@ export class CharacterUnitView {
     }
     idle.reset();
     idle.start(true, idle.speedRatio, idle.from, idle.to, false);
-    return `Unit ${this.unitId} loops ${idleClip}.`;
+    const span = Math.max(0.001, idle.to - idle.from);
+    return `Unit ${this.unitId} loops ${idleClip} (${span.toFixed(2)} frames, from ${idle.from}).`;
+  }
+
+  /**
+   * Holds one clip at a normalized phase for side-by-side idle diagnostics.
+   * Does not edit keys. Presentation recenter stays on.
+   */
+  scrubClip(clipName: string, normalized: number): string {
+    this.cancelAction();
+    const group = this.groups.find((item) => item.name === clipName);
+    if (!group) return `Unit ${this.unitId} is missing ${clipName}.`;
+    for (const other of this.groups) {
+      if (other !== group) other.stop();
+    }
+    const frame = group.from + Math.min(1, Math.max(0, normalized)) * Math.max(0.001, group.to - group.from);
+    group.start(false, group.speedRatio, frame, frame, false);
+    group.pause();
+    this.snapToSlot();
+    return `Unit ${this.unitId} holds ${clipName} at t=${normalized.toFixed(2)} (frame ${frame.toFixed(1)}).`;
+  }
+
+  /** Presentation default hides excluded indices. Diagnostic Show All draws them again. */
+  setShowAllMeshes(enabled: boolean): void {
+    this.showAllMeshes = enabled;
+    for (const mesh of this.bodyMeshes) {
+      const hit = /(?:Mesh_|submesh_)(\d+)(?:_|$)/.exec(mesh.name);
+      const index = hit ? Number(hit[1]) : null;
+      if (index !== null && this.excludedIndices.has(index) && !enabled) {
+        mesh.setEnabled(false);
+      } else {
+        mesh.setEnabled(true);
+      }
+    }
+  }
+
+  getShowAllMeshes(): boolean {
+    return this.showAllMeshes;
+  }
+
+  clipSpan(clipName: string): { from: number; to: number; seconds: number } | null {
+    const group = this.groups.find((item) => item.name === clipName);
+    if (!group) return null;
+    return { from: group.from, to: group.to, seconds: group.to - group.from };
   }
 
   /**
@@ -261,6 +313,8 @@ export class CharacterUnitView {
     this.look = null;
     this.follow = null;
     this.groups = [];
+    this.bodyMeshes = [];
+    this.excludedIndices.clear();
     if (this.container) {
       this.container.removeAllFromScene();
       this.container.dispose();

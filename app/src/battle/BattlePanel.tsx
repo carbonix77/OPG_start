@@ -83,6 +83,10 @@ export function BattlePanel(props: {
   const [targetId, setTargetId] = useState(NAMI_ID);
   const [log, setLog] = useState<string[]>([]);
   const [loadNotes, setLoadNotes] = useState<string[]>([]);
+  /** Diagnostic: draw owner-hidden submeshes. Presentation default keeps them off. */
+  const [showAllMeshes, setShowAllMeshes] = useState(false);
+  const [idlePhaseNote, setIdlePhaseNote] = useState("");
+  const [benchNote, setBenchNote] = useState("");
   const liveAction = useRef<{ engineId: number; presentToken: number; unitId: string } | null>(null);
   const mounted = useRef(true);
   const sessionRef = useRef(0);
@@ -148,10 +152,10 @@ export function BattlePanel(props: {
     markers.sync(markerSpecs);
     arenaRef.current = arena;
     markersRef.current = markers;
-    // Landscape side view: teams face across X, camera looks from +Z so all four read in 16:9.
+    // Landscape side-ish view from +X with a slight yaw so both bravo slots stay in frame.
     scene.camera.setTarget(arena.cameraTarget());
-    scene.camera.radius = 640;
-    scene.camera.alpha = 0;
+    scene.camera.radius = 720;
+    scene.camera.alpha = 0.22;
     scene.camera.beta = 1.12;
 
     const load = async () => {
@@ -170,9 +174,11 @@ export function BattlePanel(props: {
         try {
           const result = await unit.load(asset, preview, slots[index].position);
           if (cancelled || session !== sessionRef.current) return;
+          unit.setShowAllMeshes(showAllMeshes);
           results.push(result);
+          const slot = slots[index];
           notes.push(
-            `${unitId} ${result.meshes} meshes, clips ${result.clips.join(", ")}, ${result.loadMs} ms, textures ${result.textureNotes}${result.textureError ? ` (${result.textureError})` : ""}.`,
+            `${unitId}←${asset.id} @ [${slot.position.join(",")}] ${result.meshes} meshes, clips ${result.clips.join(", ")}, ${result.loadMs} ms, textures ${result.textureNotes}${result.textureError ? ` (${result.textureError})` : ""}.`,
           );
           unit.playIdle(MANIFEST_BY_UNIT[unitId].idleClip);
           markers.hidePlaceholder(unitId);
@@ -205,7 +211,12 @@ export function BattlePanel(props: {
       setReady(false);
     };
     // Intentionally omit `props` / onStatus identity so App status re-renders do not dispose fighters.
+    // showAllMeshes is applied after load via its own effect so toggling does not reload.
   }, [props.active, props.scene, engine, slots]);
+
+  useEffect(() => {
+    for (const unit of charactersRef.current.values()) unit.setShowAllMeshes(showAllMeshes);
+  }, [showAllMeshes]);
 
   const refresh = (events: BattleEvent[] = []) => {
     if (!mounted.current) return;
@@ -353,6 +364,7 @@ export function BattlePanel(props: {
     for (const unit of charactersRef.current.values()) unit.cancelAction();
     engine.reset(SEED);
     setLog([]);
+    setIdlePhaseNote("");
     refresh();
     for (const unitId of FIGHTER_IDS) {
       charactersRef.current.get(unitId)?.playIdle(MANIFEST_BY_UNIT[unitId].idleClip);
@@ -366,11 +378,48 @@ export function BattlePanel(props: {
     props.onStatus("2v2 reset. Zoro+Sanji vs Nami+Usopp restored to idle.");
   };
 
+  const holdSanjiIdlePhase = (normalized: number) => {
+    const sanji = charactersRef.current.get(SANJI_ID);
+    if (!sanji) return;
+    const idleClip = SANJI_MANIFEST.idleClip ?? "Sanji_0000";
+    const note = sanji.scrubClip(idleClip, normalized);
+    setIdlePhaseNote(note);
+    props.onStatus(note);
+  };
+
+  const loopSanjiIdle = () => {
+    const sanji = charactersRef.current.get(SANJI_ID);
+    if (!sanji) return;
+    const note = sanji.playIdle(SANJI_MANIFEST.idleClip);
+    setIdlePhaseNote(note);
+    props.onStatus(note);
+  };
+
+  const runHeapCycles = async () => {
+    if (busy || !ready) return;
+    const samples: number[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      reset();
+      await new Promise((resolve) => window.setTimeout(resolve, 120));
+      const gc = (globalThis as { gc?: () => void }).gc;
+      gc?.();
+      samples.push(measureHeapMb() ?? -1);
+    }
+    const valid = samples.filter((n) => n >= 0);
+    const note =
+      valid.length === 0
+        ? "Heap API unavailable in this browser."
+        : `Heap after 5 reset cycles (MB): ${valid.join(", ")} · min ${Math.min(...valid)} · max ${Math.max(...valid)} · last ${valid[valid.length - 1]}.`;
+    setBenchNote(note);
+    props.onStatus(note);
+  };
+
   return (
     <div className="battle-panel">
       <h1>Battle preview 2v2</h1>
       <p className="note">
         Player controls the current alive ally (Zoro or Sanji). Bravo is textured Nami and Usopp on their own rigs.
+        Foot tags show label[id] at each root for identity checks.
       </p>
       <div className="battle-hp">
         {state.units.map((unit) => (
@@ -406,6 +455,38 @@ export function BattlePanel(props: {
           Reset
         </button>
       </div>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={showAllMeshes}
+          onChange={(event) => setShowAllMeshes(event.target.checked)}
+        />
+        Show All meshes (diagnostic). Off keeps the owner hide preset.
+      </label>
+      <div className="row">
+        <button type="button" disabled={!ready || busy} onClick={() => holdSanjiIdlePhase(0)}>
+          Sanji idle t0
+        </button>
+        <button type="button" disabled={!ready || busy} onClick={() => holdSanjiIdlePhase(0.25)}>
+          t.25
+        </button>
+        <button type="button" disabled={!ready || busy} onClick={() => holdSanjiIdlePhase(0.5)}>
+          t.5
+        </button>
+        <button type="button" disabled={!ready || busy} onClick={() => holdSanjiIdlePhase(0.75)}>
+          t.75
+        </button>
+        <button type="button" disabled={!ready || busy} onClick={loopSanjiIdle}>
+          Loop idle
+        </button>
+      </div>
+      {idlePhaseNote ? <p className="note">{idlePhaseNote}</p> : null}
+      <div className="row">
+        <button type="button" disabled={!ready || busy} onClick={() => void runHeapCycles()}>
+          Heap ×5 reset
+        </button>
+      </div>
+      {benchNote ? <p className="note">{benchNote}</p> : null}
       {!ready ? <p className="note">Loading Zoro, Sanji, Nami, and Usopp…</p> : null}
       {busy ? <p className="note">Action in progress.</p> : null}
       {loadNotes.map((note) => (

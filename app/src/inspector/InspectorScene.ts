@@ -214,6 +214,8 @@ export class InspectorScene {
   private attackClip = "";
   private preview: PreviewConfig | null = null;
   private visibility: VisibilityPreset = "all";
+  /** When true (default), owner excludedMeshIndices stay hidden. Show All turns this off. */
+  private respectHidePreset = true;
   private shotRadius: number | null = null;
   private shotOffset: Vector3 | null = null;
   private readonly fill: HemisphericLight;
@@ -382,7 +384,7 @@ export class InspectorScene {
         to: group.to,
         seconds: this.seconds(group),
       })),
-      meshRows: this.bodyMeshes().map((mesh) => ({
+      meshRows: this.listCharacterMeshes().map((mesh) => ({
         name: mesh.name,
         enabled: mesh.isEnabled(),
         vertices: mesh.getTotalVertices(),
@@ -1498,6 +1500,7 @@ export class InspectorScene {
   }
 
   private isExcluded(mesh: Mesh): boolean {
+    if (!this.respectHidePreset) return false;
     const index = meshIndexOf(mesh.name);
     return index !== null && (this.preview?.excludedMeshIndices ?? []).includes(index);
   }
@@ -1505,8 +1508,45 @@ export class InspectorScene {
   /** Turns off meshes the current config says are not part of this model. */
   private hideExcludedMeshes(): void {
     for (const mesh of this.scene.meshes) {
-      if (mesh instanceof Mesh && this.isExcluded(mesh)) mesh.setEnabled(false);
+      if (!(mesh instanceof Mesh) || mesh.getTotalVertices() <= 0) continue;
+      if (/(?:^|-)driver_\d+/i.test(mesh.name)) {
+        mesh.setEnabled(false);
+        continue;
+      }
+      if (this.isPhantomMesh(mesh)) continue;
+      const index = meshIndexOf(mesh.name);
+      const listed =
+        index !== null && (this.preview?.excludedMeshIndices ?? []).includes(index);
+      if (listed && this.respectHidePreset) mesh.setEnabled(false);
+      else if (listed && !this.respectHidePreset) mesh.setEnabled(true);
     }
+  }
+
+  /**
+   * Diagnostic Show All for owner hide lists. Drivers stay hidden.
+   * Default true = keep the provisional hide preset.
+   */
+  setRespectHidePreset(enabled: boolean): SceneFacts {
+    this.respectHidePreset = enabled;
+    this.hideExcludedMeshes();
+    return this.facts("");
+  }
+
+  getRespectHidePreset(): boolean {
+    return this.respectHidePreset;
+  }
+
+  /** All character meshes including owner-hidden ones (drivers/phantoms excluded). */
+  private listCharacterMeshes(): Mesh[] {
+    return this.scene.meshes.filter(
+      (mesh): mesh is Mesh =>
+        mesh instanceof Mesh &&
+        mesh.name !== "ground" &&
+        !mesh.name.startsWith("preview-fx-") &&
+        !/(?:^|-)driver_\d+/i.test(mesh.name) &&
+        !this.isPhantomMesh(mesh) &&
+        mesh.getTotalVertices() > 0,
+    );
   }
 
   private bodyMeshes(): Mesh[] {
