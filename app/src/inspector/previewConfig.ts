@@ -127,6 +127,8 @@ export interface PreviewConfig {
   sheetCandidates: string[];
   /** GLB material slot for mesh index N. Null keeps Material_N names only. */
   materialSlotByMesh: number[] | null;
+  /** Sheet used for one mesh instead of the map entry. Empty leaves the map. */
+  sheetByMesh: Readonly<Record<number, string>>;
   staticMeshIndices: number[];
   /**
    * Mesh indices that do not belong on this model. They stay in the file and are not drawn.
@@ -177,7 +179,8 @@ export const FOLLOW_NODE_CANDIDATES = ["SK_Skeleton", "bone_1", "bone_0"];
  * Mesh 17 and 27 stay within 0.28 at the sampled times and both skin to one weapon bone.
  * Meshes 30, 33, and 39 stay within 0.44 and skin to the other weapon bone.
  * The distance 1 is above those gaps. It is not a rule from the game.
- * Mesh 36 is skinned to a child of the head bone. Its sheet stays the reconstructed map.
+ * Mesh 36 is skinned to a child of the head bone.
+ * The map still sends slot 33 to cloth. The mouth blade uses the whole weapon sheet.
  */
 export const ZORO_PREVIEW: PreviewConfig = {
   id: "zoro",
@@ -195,6 +198,7 @@ export const ZORO_PREVIEW: PreviewConfig = {
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 11, 13, 14, 15, 16, 17, 18, 19, 21, 20, 20, 20, 20, 22, 23, 24, 25, 26, 27,
     28, 29, 30, 31, 32, 33, 34, 35, 36,
   ],
+  sheetByMesh: { 36: "weapon" },
   staticMeshIndices: [3, 22, 23, 24],
   excludedMeshIndices: [2],
   stacks: [
@@ -373,6 +377,7 @@ export const FIXTURE_PREVIEW: PreviewConfig = {
   poseBone: null,
   sheetCandidates: [],
   materialSlotByMesh: null,
+  sheetByMesh: {},
   staticMeshIndices: [],
   excludedMeshIndices: [],
   stacks: [],

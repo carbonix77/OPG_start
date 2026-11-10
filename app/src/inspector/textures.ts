@@ -17,6 +17,8 @@ export interface LookOptions {
   textureDir: string;
   /** GLB material slot for mesh index N. Omitted when the file already uses Material_N. */
   materialSlotByMesh?: number[] | null;
+  /** Sheet chosen for one mesh index. It replaces the map entry for that mesh only. */
+  sheetByMesh?: Readonly<Record<number, string>> | null;
   normalSheets: string[];
   alphaTestSheets: string[];
   alphaCutOff: number;
@@ -44,22 +46,23 @@ export async function applyTemporaryLook(scene: Scene, meshes: Mesh[], options: 
   const created: PBRMaterial[] = [];
   const previous = new Map<Mesh, Material | null>();
   const notes: TextureNote[] = [];
-  const groups = new Map<string, { label: string; index: number | null; via: TextureNote["via"]; meshes: Mesh[] }>();
+  const groups = new Map<string, { label: string; index: number | null; via: TextureNote["via"]; meshes: Mesh[]; chosen: string }>();
 
   for (const mesh of meshes) {
     const named = mesh.material ? /^Material_(\d+)$/.exec(mesh.material.name) : null;
     const meshIndex = meshIndexOf(mesh.name);
     const via: TextureNote["via"] = named ? "material-name" : "mesh-index";
     const index = named ? Number(named[1]) : meshIndex !== null && slots ? (slots[meshIndex] ?? null) : null;
-    const key = `${via}:${index ?? "none"}`;
-    const group = groups.get(key) ?? { label: mesh.material?.name ?? mesh.name, index, via, meshes: [] };
+    const chosen = meshIndex !== null ? (options.sheetByMesh?.[meshIndex] ?? "") : "";
+    const key = chosen ? `sheet:${meshIndex}:${chosen}` : `${via}:${index ?? "none"}`;
+    const group = groups.get(key) ?? { label: mesh.material?.name ?? mesh.name, index, via, meshes: [], chosen };
     group.meshes.push(mesh);
     groups.set(key, group);
   }
 
   for (const group of groups.values()) {
     const index = group.index;
-    const sheet = index === null ? "" : (assignment[String(index)] ?? "");
+    const sheet = group.chosen || (index === null ? "" : (assignment[String(index)] ?? ""));
     if (!sheet) {
       notes.push({ material: group.label, index, sheet: "", normal: false, guessed: false, via: group.via });
       continue;
@@ -101,7 +104,7 @@ export async function applyTemporaryLook(scene: Scene, meshes: Mesh[], options: 
       index,
       sheet,
       normal: pair.normal !== null,
-      guessed: sheet.startsWith("weapon"),
+      guessed: !group.chosen && sheet.startsWith("weapon"),
       via: group.via,
     });
   }

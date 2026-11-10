@@ -31,7 +31,7 @@ Confirmed hand shells hides 27, 30, and 33 for the current action. Hip and mouth
 
 Mesh 36 UVs on this file: u at the 5th, 50th, and 95th percentile is 0.04, 0.23, 0.95. v is 0.06, 0.42, 0.87. The samples cover 45 of 64 eight-by-eight cells. The Noesis glTF has no material array and no G1T index. The local inventory still has 56 G1T files and twelve decoded sheet names. `map.json` sending slot 33 to `cloth` is the reconstructed baseline, not a recovered index.
 
-`zoro-visual-mouth-cloth.png` is that baseline at `Zoro_1330` normalized 0.35. `zoro-visual-mouth-weapon.png` puts the whole `weapon.png` atlas on mesh 36 only. The blade reads darker, and the same UV span also picks up other parts of the atlas, including a round mark. That test is provisional. It was not kept. The crop was not retuned.
+`zoro-visual-mouth-cloth.png` is the old cloth baseline at `Zoro_1330` normalized 0.35. `zoro-visual-mouth-weapon.png` puts the whole `weapon.png` atlas on mesh 36 only. That sheet is the mouth assignment. The map entry for slot 33 stays `cloth`, and the preview replaces it for mesh 36. The crop was not retuned.
 
 ## Textured copies
 

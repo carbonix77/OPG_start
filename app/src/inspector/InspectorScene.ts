@@ -1232,6 +1232,7 @@ export class InspectorScene {
     this.temporary = await applyTemporaryLook(this.scene, this.bodyMeshes(), {
       textureDir: this.preview.textureDir,
       materialSlotByMesh: this.preview.materialSlotByMesh,
+      sheetByMesh: this.preview.sheetByMesh,
       normalSheets: this.preview.normalSheets,
       alphaTestSheets: this.preview.alphaTestSheets,
       alphaCutOff: this.preview.alphaCutOff,
@@ -1485,6 +1486,7 @@ export class InspectorScene {
       phantom.look = await applyTemporaryLook(this.scene, meshes, {
         textureDir: config.textureDir,
         materialSlotByMesh: config.materialSlotByMesh,
+        sheetByMesh: config.sheetByMesh,
         normalSheets: config.normalSheets,
         alphaTestSheets: config.alphaTestSheets,
         alphaCutOff: config.alphaCutOff,

@@ -416,7 +416,7 @@ export function App() {
               setStage(true);
               setOrbitDebug(false);
               setPreviewEffects(true);
-              setMouthPreview(true);
+              setMouthPreview(false);
               setSheet("");
               sceneRef.current?.setRecenter(true);
               sceneRef.current?.setStage(true, preview);
@@ -424,7 +424,7 @@ export function App() {
               void (async () => {
                 const notes = await sceneRef.current?.setTemporaryTextures(true, preview);
                 if (sceneRef.current && notes) setTextureNotes(notes);
-                setSheetNote(sceneRef.current?.setMouthPreview(true, preview) ?? "");
+                setSheetNote("");
                 sceneRef.current?.setPreviewEffects(true, preview);
                 setPreviewNote(sceneRef.current?.playCinematic(preview, true) ?? "");
               })();
@@ -531,7 +531,7 @@ export function App() {
         {textureNotes.length > 0 ? (
           <p className="note">
             {textureNotes.some((note) => note.via === "mesh-index")
-              ? "Mesh index matched the GLB material slot. Vertex counts matched. Sword sheets stay guessed."
+              ? "Mesh index matched the GLB material slot. Mesh 36 uses the weapon sheet. Other sword sheets stay guessed."
               : textureNotes
                   .filter((note) => note.sheet)
                   .map((note) => `${note.material} ${note.sheet}${note.guessed ? " guessed" : ""}${note.normal ? " +n" : ""}`)
