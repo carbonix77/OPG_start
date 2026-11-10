@@ -15,6 +15,7 @@ export interface SwordStack {
 
 export interface PreviewShot {
   id: string;
+  button: string;
   label: string;
   clip: "idle" | "attack";
   normalized: number;
@@ -22,6 +23,26 @@ export interface PreviewShot {
   beta: number;
   /** Fixed orbit radius. Null uses the fitted radius. */
   radius: number | null;
+  /** Added to the follow node when this shot holds the camera. */
+  targetOffset: [number, number, number];
+}
+
+export interface PreviewBlade {
+  /** Sheet sampled by a preview UV crop. Not an original assignment. */
+  sheet: string;
+  uScale: number;
+  vScale: number;
+  uOffset: number;
+  vOffset: number;
+  metallic: number;
+  roughness: number;
+}
+
+export interface SwordGroup {
+  id: string;
+  role: "hand" | "mouth" | "hip";
+  bone: string;
+  indices: number[];
 }
 
 export interface PreviewConfig {
@@ -44,6 +65,10 @@ export interface PreviewConfig {
   materialSlotByMesh: number[] | null;
   staticMeshIndices: number[];
   stacks: SwordStack[];
+  /** Bone groups measured for the three-sword proposal. The page does not hide them. */
+  swordGroups: SwordGroup[];
+  /** Reversible crop for the mouth mesh. Null when this character has no such test. */
+  mouthBlade: PreviewBlade | null;
   handoffSeconds: number;
   blendSeconds: number;
   camera: {
@@ -96,6 +121,23 @@ export const ZORO_PREVIEW: PreviewConfig = {
     { indices: [17, 27], coincideDistance: 1 },
     { indices: [30, 33, 39], coincideDistance: 1 },
   ],
+  swordGroups: [
+    { id: "left-hand", role: "hand", bone: "SK_L_Weapon", indices: [17, 27] },
+    { id: "right-hand", role: "hand", bone: "SK_R_Weapon", indices: [30, 33, 39] },
+    { id: "mouth", role: "mouth", bone: "0x43b3b303", indices: [36] },
+    { id: "hip-a", role: "hip", bone: "0x7ede6180", indices: [15, 16, 25, 26] },
+    { id: "hip-b", role: "hip", bone: "0x8a94f061", indices: [28, 29, 31, 32, 37, 38] },
+    { id: "hip-c", role: "hip", bone: "0x964b7f42", indices: [34, 35] },
+  ],
+  mouthBlade: {
+    sheet: "weapon",
+    uScale: 0.06,
+    vScale: 0.22,
+    uOffset: 0.91,
+    vOffset: 0.38,
+    metallic: 0.2,
+    roughness: 0.4,
+  },
   handoffSeconds: 0.3,
   blendSeconds: 0.28,
   camera: {
@@ -108,8 +150,8 @@ export const ZORO_PREVIEW: PreviewConfig = {
     includeDistance: 400,
   },
   stage: {
-    clear: [0.07, 0.08, 0.11],
-    ground: [0.1, 0.11, 0.13],
+    clear: [0.08, 0.09, 0.11],
+    ground: [0.08, 0.09, 0.11],
     keyIntensity: 1.15,
     keyDirection: [-0.25, -1, -0.45],
     rimIntensity: 0.55,
@@ -117,22 +159,48 @@ export const ZORO_PREVIEW: PreviewConfig = {
   },
   shots: [
     {
-      id: "idle-wide",
+      id: "idle",
+      button: "Idle",
       label: "Stage idle. Preview lighting, not a game effect.",
       clip: "idle",
       normalized: 0,
       alpha: Math.PI / 2,
-      beta: 1.15,
-      radius: 520,
+      beta: 1.2,
+      radius: 470,
+      targetOffset: [0, 8, 0],
     },
     {
-      id: "attack-wide",
-      label: "Stage attack at 0.35. Preview lighting, not a game effect.",
+      id: "anticipation",
+      button: "Anticipation",
+      label: "Stage anticipation at 0.12. Preview lighting, not a game effect.",
+      clip: "attack",
+      normalized: 0.12,
+      alpha: Math.PI / 2,
+      beta: 1.18,
+      radius: 520,
+      targetOffset: [0, 12, 0],
+    },
+    {
+      id: "strike",
+      button: "Strike",
+      label: "Stage strike at 0.35. Preview lighting, not a game effect.",
       clip: "attack",
       normalized: 0.35,
-      alpha: Math.PI / 2 + 0.4,
-      beta: 1.05,
-      radius: 640,
+      alpha: Math.PI / 2 + 0.22,
+      beta: 1.22,
+      radius: 540,
+      targetOffset: [0, 4, 0],
+    },
+    {
+      id: "recovery",
+      button: "Recovery",
+      label: "Stage recovery at 0.92. Preview lighting, not a game effect.",
+      clip: "attack",
+      normalized: 0.92,
+      alpha: Math.PI / 2,
+      beta: 1.2,
+      radius: 500,
+      targetOffset: [0, 10, 0],
     },
   ],
 };

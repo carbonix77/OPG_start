@@ -33,6 +33,7 @@ export function App() {
   const [sheetNote, setSheetNote] = useState("");
   const [preset, setPreset] = useState<VisibilityPreset>("all");
   const [stage, setStage] = useState(false);
+  const [mouthPreview, setMouthPreview] = useState(false);
   const [viewportOnly, setViewportOnly] = useState(false);
   const [wideFrame, setWideFrame] = useState(false);
   const [textureNotes, setTextureNotes] = useState<TextureNote[]>([]);
@@ -72,6 +73,7 @@ export function App() {
     setSheetNote("");
     setPreset("all");
     setStage(false);
+    setMouthPreview(false);
     setPreviewNote("");
     const config = previewForAsset(assetId);
     inspector.setPreviewConfig(config);
@@ -268,7 +270,7 @@ export function App() {
           >
             <option value="all">Show all meshes</option>
             <option value="hide-static">Hide tiny world-static meshes</option>
-            <option value="stacks">Hide coincident sword shells while they stay stacked</option>
+            <option value="stacks">Experimental: hide coincident shells. Not proven for every clip.</option>
           </select>
         </label>
         <label className="check">
@@ -283,6 +285,19 @@ export function App() {
           />
           Preview stage. Lighting only. Not a game effect.
         </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={mouthPreview}
+            onChange={(event) => {
+              const enabled = event.target.checked;
+              setMouthPreview(enabled);
+              if (enabled) setSheet("");
+              setSheetNote(sceneRef.current?.setMouthPreview(enabled, preview) ?? "");
+            }}
+          />
+          Preview blade crop on the mouth mesh. Not an original texture.
+        </label>
         <div className="row">
           {preview.shots.map((shot) => (
             <button
@@ -292,13 +307,17 @@ export function App() {
                 setFollow(true);
                 setWideFrame(true);
                 setStage(true);
+                setTextures(true);
                 setRecenter(true);
                 sceneRef.current?.setRecenter(true);
                 sceneRef.current?.setStage(true, preview);
+                void sceneRef.current?.setTemporaryTextures(true, preview).then((notes) => {
+                  if (sceneRef.current) setTextureNotes(notes);
+                });
                 setPreviewNote(sceneRef.current?.showShot(preview, shot.id) ?? "");
               }}
             >
-              {shot.clip === "attack" ? "Stage attack" : "Stage idle"}
+              {shot.button}
             </button>
           ))}
         </div>

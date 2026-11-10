@@ -113,9 +113,12 @@ export class InspectorScene {
   private preview: PreviewConfig | null = null;
   private visibility: VisibilityPreset = "all";
   private shotRadius: number | null = null;
+  private shotOffset: Vector3 | null = null;
   private readonly sun: DirectionalLight;
   private readonly rim: DirectionalLight;
+  private readonly ground: Mesh;
   private readonly groundMat: StandardMaterial;
+  private mouthPreview: { mesh: Mesh; previous: Material | null; material: PBRMaterial; texture: Texture } | null = null;
   private sheetTest: { mesh: Mesh; previous: Material | null; material: PBRMaterial; texture: Texture } | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -133,13 +136,13 @@ export class InspectorScene {
     this.sun.intensity = 0.8;
     this.rim = new DirectionalLight("rim", new Vector3(0.7, -0.35, 0.6), this.scene);
     this.rim.intensity = 0;
-    const ground = MeshBuilder.CreateGround("ground", { width: 4000, height: 4000 }, this.scene);
-    ground.position.y = 0;
+    this.ground = MeshBuilder.CreateGround("ground", { width: 4000, height: 4000 }, this.scene);
+    this.ground.position.y = 0;
     this.groundMat = new StandardMaterial("ground-mat", this.scene);
     this.groundMat.diffuseColor = new Color3(0.16, 0.17, 0.19);
     this.groundMat.specularColor = Color3.Black();
-    ground.material = this.groundMat;
-    ground.receiveShadows = false;
+    this.ground.material = this.groundMat;
+    this.ground.receiveShadows = false;
     this.previewRoot = new TransformNode("previewRoot", this.scene);
     this.engine.runRenderLoop(() => {
       this.applyRecenter();
@@ -224,6 +227,7 @@ export class InspectorScene {
     if (!group) return;
     this.clearAttackEnd();
     this.shotRadius = null;
+    this.shotOffset = null;
     for (const other of this.groups) {
       if (other !== group) other.stop();
     }
@@ -295,6 +299,7 @@ export class InspectorScene {
     if (!group) return;
     this.clearAttackEnd();
     this.shotRadius = null;
+    this.shotOffset = null;
     this.hold(group);
     const frame = group.from + clamp01(normalized) * (group.to - group.from);
     group.goToFrame(frame);
@@ -336,6 +341,7 @@ export class InspectorScene {
    * Passing an empty sheet restores that mesh.
    */
   setMeshSheet(meshIndex: number, sheet: string, textureDir: string): string {
+    this.clearMouthPreview();
     this.clearSheetTest();
     if (!sheet) return "";
     const mesh = this.meshByIndex(meshIndex);
@@ -352,6 +358,36 @@ export class InspectorScene {
     this.sheetTest = { mesh, previous: mesh.material, material, texture };
     mesh.material = material;
     return `Mesh ${meshIndex} uses ${source}. Test sheet ${sheet} is on this mesh only. The map is unchanged.`;
+  }
+
+  /**
+   * Crops one existing sheet onto the configured mouth mesh.
+   * The crop is a preview stand-in. It is not an original UV assignment.
+   */
+  setMouthPreview(enabled: boolean, config?: PreviewConfig): string {
+    this.clearMouthPreview();
+    if (config) this.preview = config;
+    const blade = this.preview?.mouthBlade;
+    const meshIndex = this.preview?.mouthMeshIndex;
+    if (!enabled || !blade || meshIndex === null || meshIndex === undefined || !this.preview) return "";
+    this.clearSheetTest();
+    const mesh = this.meshByIndex(meshIndex);
+    if (!(mesh instanceof Mesh)) return `Mesh ${meshIndex} is not loaded`;
+    const texture = new Texture(fileUrl(`${this.preview.textureDir}/${blade.sheet}.png`), this.scene, false, false);
+    texture.gammaSpace = true;
+    texture.uScale = blade.uScale;
+    texture.vScale = blade.vScale;
+    texture.uOffset = blade.uOffset;
+    texture.vOffset = blade.vOffset;
+    const material = new PBRMaterial(`preview-blade-${meshIndex}`, this.scene);
+    material.albedoTexture = texture;
+    material.metallic = blade.metallic;
+    material.roughness = blade.roughness;
+    material.backFaceCulling = false;
+    material.twoSidedLighting = true;
+    this.mouthPreview = { mesh, previous: mesh.material, material, texture };
+    mesh.material = material;
+    return `Mesh ${meshIndex} uses a cropped ${blade.sheet} sample. This is not an original atlas.`;
   }
 
   /**
@@ -383,8 +419,10 @@ export class InspectorScene {
       this.sun.intensity = 0.8;
       this.sun.direction.set(-0.4, -1, 0.3);
       this.rim.intensity = 0;
+      this.ground.scaling.set(1, 1, 1);
       return;
     }
+    this.ground.scaling.set(12, 1, 12);
     this.scene.clearColor.set(stage.clear[0], stage.clear[1], stage.clear[2], 1);
     this.groundMat.diffuseColor.set(stage.ground[0], stage.ground[1], stage.ground[2]);
     this.sun.intensity = stage.keyIntensity;
@@ -405,6 +443,7 @@ export class InspectorScene {
     this.follow = true;
     this.tight = true;
     this.shotRadius = shot.radius;
+    this.shotOffset = new Vector3(shot.targetOffset[0], shot.targetOffset[1], shot.targetOffset[2]);
     this.camera.alpha = shot.alpha;
     this.camera.beta = shot.beta;
     this.aimPreview();
@@ -466,6 +505,7 @@ export class InspectorScene {
 
   /** Reconstructed albedo/normal assignment. Restores the loaded materials when disabled. */
   async setTemporaryTextures(enabled: boolean, config?: PreviewConfig): Promise<TextureNote[]> {
+    this.clearMouthPreview();
     this.clearSheetTest();
     this.temporary?.restore();
     this.temporary = null;
@@ -658,6 +698,15 @@ export class InspectorScene {
     }
   }
 
+  private clearMouthPreview(): void {
+    if (!this.mouthPreview) return;
+    const { mesh, previous, material, texture } = this.mouthPreview;
+    if (!mesh.isDisposed()) mesh.material = previous;
+    material.dispose(false, false);
+    texture.dispose();
+    this.mouthPreview = null;
+  }
+
   private clearSheetTest(): void {
     if (!this.sheetTest) return;
     const { mesh, previous, material, texture } = this.sheetTest;
@@ -670,6 +719,7 @@ export class InspectorScene {
   private disposeLoaded(): void {
     this.clearAttackEnd();
     this.tight = false;
+    this.clearMouthPreview();
     this.clearSheetTest();
     this.previewRoot.position.setAll(0);
     this.temporary?.restore();
@@ -697,6 +747,7 @@ export class InspectorScene {
   private armPreview(config: PreviewConfig): void {
     this.preview = config;
     this.shotRadius = null;
+    this.shotOffset = null;
     this.setVisibilityPreset("hide-static", config);
     this.follow = true;
     this.tight = true;
@@ -731,6 +782,8 @@ export class InspectorScene {
     const size = max.subtract(min);
     this.camera.target.copyFrom(min.add(size.scale(0.5)));
     if (this.shotRadius !== null) {
+      this.camera.target.copyFrom(origin);
+      if (this.shotOffset) this.camera.target.addInPlace(this.shotOffset);
       this.camera.radius = this.shotRadius;
       return;
     }
