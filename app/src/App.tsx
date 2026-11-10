@@ -235,6 +235,17 @@ export function App() {
             >
               Recorded sword preset
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                const result = sceneRef.current?.applyConfirmedShells();
+                if (!result) return;
+                setPreset("all");
+                setPreviewNote(result.note);
+              }}
+            >
+              Confirmed hand shells
+            </button>
           </div>
         ) : null}
         {previewNote ? <p className="note">{previewNote}</p> : null}

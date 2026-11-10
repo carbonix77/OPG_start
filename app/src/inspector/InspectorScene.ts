@@ -17,6 +17,7 @@ import {
   StandardMaterial,
   Texture,
   TransformNode,
+  VertexBuffer,
   Vector3,
   type AbstractMesh,
   AnimationGroup,
@@ -150,6 +151,24 @@ interface PhantomBody {
   container: AssetContainer;
   place: [number, number, number];
   meshes: number;
+  look: TemporaryLook | null;
+}
+
+export interface SwordMeshRow {
+  index: number;
+  role: string;
+  bone: string;
+  vertices: number;
+  weightMin: number;
+  longest: number;
+  /** Farthest this mesh center sits from the highest-vertex mesh on the same bone, across the sampled times. */
+  maxGap: number;
+}
+
+export interface SwordSurvey {
+  clips: string[];
+  rows: SwordMeshRow[];
+  note: string;
 }
 
 interface RuntimeEffect {
@@ -206,6 +225,7 @@ export class InspectorScene {
   private assetPath = "";
   private phantoms: PhantomBody[] = [];
   private phantomLoadMs = 0;
+  private shellsApplied = false;
   private readonly ground: Mesh;
   private readonly groundMat: StandardMaterial;
   private mouthPreview: { mesh: Mesh; previous: Material | null; material: PBRMaterial; texture: Texture } | null = null;
@@ -384,6 +404,7 @@ export class InspectorScene {
       if (other !== idle) other.stop();
     }
     idle.play(true);
+    this.restoreShells();
     this.syncPhantomPlayback(config.idleClip, 0);
     return `${config.idleClip} is looping on this file's skeleton. Provisional preview idle, not a verified idle.`;
   }
@@ -427,6 +448,7 @@ export class InspectorScene {
     this.attackEnd = attack.onAnimationGroupEndObservable.add(() => {
       this.clearAttackEnd();
       this.stopPhantomClips();
+      this.restoreShells();
       if (!this.groups.includes(idle)) return;
       this.framePhase = "idle";
       this.blendToIdle(attack, idle, config.blendSeconds);
@@ -566,6 +588,7 @@ export class InspectorScene {
           container,
           place: spec.offset,
           meshes: container.meshes.length,
+          look: null,
         });
       }
     } catch (error) {
@@ -579,8 +602,10 @@ export class InspectorScene {
     this.phantomLoadMs = performance.now() - started;
     const asura = this.preview?.asuraClip;
     const playing = asura ? this.groups.find((group) => group.name === asura && group.isStarted) : undefined;
+    if (this.temporary) await this.applyPhantomLooks();
     if (playing && asura) this.syncPhantomPlayback(asura, this.normalizedOf(playing));
-    return `Spawned ${this.phantoms.length} separate skinned copies in ${Math.round(this.phantomLoadMs)} ms. They stay hidden until ${asura ?? "the Asura clip"} plays. Not verified Asura.`;
+    const textured = this.temporary ? " The copies use the same material map as the main body." : " Turn on temporary textures to map the copies.";
+    return `Spawned ${this.phantoms.length} separate skinned copies in ${Math.round(this.phantomLoadMs)} ms. They stay hidden until ${asura ?? "the Asura clip"} plays. Not verified Asura.${textured}`;
   }
 
   /** Samples each phantom at the end of its own clip, then hides it again. */
@@ -626,7 +651,7 @@ export class InspectorScene {
     this.startPhantomClips(normalized);
   }
 
-  async measureFps(ms: number): Promise<{ frames: number; avgFps: number; minFps: number }> {
+  async measureFps(ms: number): Promise<{ frames: number; avgFps: number; minFps: number; p95Ms: number }> {
     const gaps: number[] = [];
     let last = performance.now();
     const start = last;
@@ -639,12 +664,12 @@ export class InspectorScene {
         if (now - start < ms && token === this.loadToken) return;
         this.scene.onAfterRenderObservable.remove(observer);
         if (gaps.length === 0) {
-          resolve({ frames: 0, avgFps: 0, minFps: 0 });
+          resolve({ frames: 0, avgFps: 0, minFps: 0, p95Ms: 0 });
           return;
         }
         const fps = gaps.map((gap) => 1000 / gap);
         const avg = fps.reduce((sum, value) => sum + value, 0) / fps.length;
-        resolve({ frames: gaps.length, avgFps: round(avg), minFps: round(Math.min(...fps)) });
+        resolve({ frames: gaps.length, avgFps: round(avg), minFps: round(Math.min(...fps)), p95Ms: round(percentile(gaps, 0.95)) });
       });
     });
   }
@@ -690,6 +715,132 @@ export class InspectorScene {
     }
     this.setVisibilityPreset(state.preset, this.preview);
     return { preset: state.preset, note: state.note };
+  }
+
+  /**
+   * Samples sword groups on every labeled clip.
+   * A small center gap is not treated as permission to delete a mesh.
+   */
+  swordSurvey(): SwordSurvey {
+    const clips = (this.preview?.behaviors ?? []).map((item) => item.clip).filter((name) => this.groups.some((group) => group.name === name));
+    const groups = this.preview?.swordGroups ?? [];
+    const meshes = new Map<number, Mesh>();
+    for (const mesh of this.bodyMeshes()) {
+      const index = meshIndexOf(mesh.name);
+      if (index !== null) meshes.set(index, mesh);
+    }
+    const centers = new Map<number, Vector3[]>();
+    const longest = new Map<number, number>();
+    for (const name of clips) {
+      const group = this.groups.find((item) => item.name === name);
+      if (!group) continue;
+      for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+        this.hold(group);
+        group.goToFrame(group.from + t * (group.to - group.from));
+        for (const sword of groups) {
+          for (const index of sword.indices) {
+            const mesh = meshes.get(index);
+            if (!mesh) continue;
+            mesh.computeWorldMatrix(true);
+            mesh.refreshBoundingInfo(true, false);
+            const box = mesh.getBoundingInfo().boundingBox;
+            const size = box.maximumWorld.subtract(box.minimumWorld);
+            longest.set(index, Math.max(longest.get(index) ?? 0, Math.max(size.x, size.y, size.z)));
+            const list = centers.get(index) ?? [];
+            list.push(box.centerWorld.clone());
+            centers.set(index, list);
+          }
+        }
+      }
+    }
+    const rows: SwordMeshRow[] = [];
+    for (const sword of groups) {
+      const ranked = [...sword.indices].sort((a, b) => (meshes.get(b)?.getTotalVertices() ?? 0) - (meshes.get(a)?.getTotalVertices() ?? 0));
+      const anchor = ranked[0];
+      for (const index of sword.indices) {
+        const mesh = meshes.get(index);
+        const anchorCenters = centers.get(anchor) ?? [];
+        const mine = centers.get(index) ?? [];
+        let maxGap = 0;
+        for (let i = 0; i < Math.min(anchorCenters.length, mine.length); i += 1) {
+          maxGap = Math.max(maxGap, Vector3.Distance(anchorCenters[i], mine[i]));
+        }
+        const skin = mesh ? rigidBone(mesh) : { bone: "", weightMin: 0 };
+        rows.push({
+          index,
+          role: sword.role,
+          bone: skin.bone || sword.bone,
+          vertices: mesh?.getTotalVertices() ?? 0,
+          weightMin: round(skin.weightMin),
+          longest: round(longest.get(index) ?? 0),
+          maxGap: round(maxGap),
+        });
+      }
+    }
+    return {
+      clips,
+      rows,
+      note: "Gaps are between mesh centers on the same configured bone. A small gap is not a reason to delete the mesh.",
+    };
+  }
+
+  /**
+   * Hides lower-vertex hand shells only when they stay within the configured gap on every labeled clip.
+   * Hip and mouth meshes stay. Show all comes back when the action ends.
+   */
+  applyConfirmedShells(): { hidden: number[]; note: string } {
+    const survey = this.swordSurvey();
+    const hidden: number[] = [];
+    for (const stack of this.preview?.stacks ?? []) {
+      const rows = survey.rows.filter((row) => stack.indices.includes(row.index));
+      const gap = rows.reduce((max, row) => Math.max(max, row.maxGap), 0);
+      const rigid = rows.every((row) => row.weightMin >= 0.99 && row.role === "hand");
+      if (!rigid || gap > stack.coincideDistance) continue;
+      const ranked = [...rows].sort((a, b) => b.vertices - a.vertices);
+      hidden.push(...ranked.slice(1).map((row) => row.index));
+    }
+    this.setVisibilityPreset("all", this.preview);
+    const hide = new Set(hidden);
+    for (const mesh of this.bodyMeshes()) {
+      const index = meshIndexOf(mesh.name);
+      if (index !== null && hide.has(index)) mesh.setEnabled(false);
+    }
+    this.shellsApplied = hidden.length > 0;
+    const note =
+      hidden.length > 0
+        ? `Hand shells ${hidden.join(", ")} are hidden for this action. Hip and mouth meshes stay. Show all returns when the action ends.`
+        : "No hand shell stayed within the gap on every labeled clip. Nothing was hidden.";
+    return { hidden, note };
+  }
+
+  /** UV span of the configured mouth mesh. This does not assign a texture. */
+  mouthChart(): { index: number; u: [number, number, number]; v: [number, number, number]; cells: number; used: number } | null {
+    const index = this.preview?.mouthMeshIndex;
+    if (index === null || index === undefined) return null;
+    const mesh = this.meshByIndex(index);
+    if (!(mesh instanceof Mesh)) return null;
+    const uv = mesh.getVerticesData(VertexBuffer.UVKind);
+    if (!uv || uv.length < 2) return null;
+    const us: number[] = [];
+    const vs: number[] = [];
+    const cells = new Set<number>();
+    for (let i = 0; i < uv.length; i += 2) {
+      us.push(uv[i]);
+      vs.push(uv[i + 1]);
+      const cx = Math.min(7, Math.max(0, Math.floor(uv[i] * 8)));
+      const cy = Math.min(7, Math.max(0, Math.floor(uv[i + 1] * 8)));
+      cells.add(cy * 8 + cx);
+    }
+    us.sort((a, b) => a - b);
+    vs.sort((a, b) => a - b);
+    const pick = (values: number[], p: number) => values[Math.min(values.length - 1, Math.max(0, Math.round((values.length - 1) * p)))];
+    return {
+      index,
+      u: [round(pick(us, 0.05)), round(pick(us, 0.5)), round(pick(us, 0.95))],
+      v: [round(pick(vs, 0.05)), round(pick(vs, 0.5)), round(pick(vs, 0.95))],
+      cells: 64,
+      used: cells.size,
+    };
   }
 
   /**
@@ -1072,6 +1223,10 @@ export class InspectorScene {
     this.clearSheetTest();
     this.temporary?.restore();
     this.temporary = null;
+    for (const phantom of this.phantoms) {
+      phantom.look?.restore();
+      phantom.look = null;
+    }
     if (config) this.preview = config;
     if (!enabled || !this.preview) return [];
     this.temporary = await applyTemporaryLook(this.scene, this.bodyMeshes(), {
@@ -1081,6 +1236,7 @@ export class InspectorScene {
       alphaTestSheets: this.preview.alphaTestSheets,
       alphaCutOff: this.preview.alphaCutOff,
     });
+    await this.applyPhantomLooks();
     return this.temporary.notes;
   }
 
@@ -1308,12 +1464,38 @@ export class InspectorScene {
   private clearPhantoms(): void {
     for (const phantom of this.phantoms) {
       phantom.group?.stop();
+      phantom.look?.restore();
+      phantom.look = null;
       phantom.container.removeAllFromScene();
       phantom.container.dispose();
       if (!phantom.root.isDisposed()) phantom.root.dispose();
     }
     this.phantoms = [];
     this.phantomLoadMs = 0;
+  }
+
+  private async applyPhantomLooks(): Promise<void> {
+    const config = this.preview;
+    if (!this.temporary || !config) return;
+    for (const phantom of this.phantoms) {
+      phantom.look?.restore();
+      const meshes = phantom.container.meshes.filter(
+        (mesh): mesh is Mesh => mesh instanceof Mesh && mesh.getTotalVertices() > 0 && !this.isExcluded(mesh),
+      );
+      phantom.look = await applyTemporaryLook(this.scene, meshes, {
+        textureDir: config.textureDir,
+        materialSlotByMesh: config.materialSlotByMesh,
+        normalSheets: config.normalSheets,
+        alphaTestSheets: config.alphaTestSheets,
+        alphaCutOff: config.alphaCutOff,
+      });
+    }
+  }
+
+  private restoreShells(): void {
+    if (!this.shellsApplied) return;
+    this.shellsApplied = false;
+    this.setVisibilityPreset("all", this.preview);
   }
 
   private applyPhantomPlacement(): void {
@@ -2125,6 +2307,37 @@ export class InspectorScene {
       })),
     };
   }
+}
+
+function rigidBone(mesh: Mesh): { bone: string; weightMin: number } {
+  const indices = mesh.getVerticesData(VertexBuffer.MatricesIndicesKind);
+  const weights = mesh.getVerticesData(VertexBuffer.MatricesWeightsKind);
+  if (!indices || !weights || !mesh.skeleton || weights.length === 0) return { bone: "", weightMin: 0 };
+  let minPeak = 1;
+  const counts = new Map<number, number>();
+  for (let i = 0; i < weights.length; i += 4) {
+    let peak = 0;
+    let bone = 0;
+    for (let k = 0; k < 4; k += 1) {
+      const weight = weights[i + k] ?? 0;
+      if (weight >= peak) {
+        peak = weight;
+        bone = Math.round(indices[i + k] ?? 0);
+      }
+    }
+    minPeak = Math.min(minPeak, peak);
+    counts.set(bone, (counts.get(bone) ?? 0) + 1);
+  }
+  let best = 0;
+  let bestCount = -1;
+  for (const [bone, count] of counts) {
+    if (count > bestCount) {
+      best = bone;
+      bestCount = count;
+    }
+  }
+  const found = mesh.skeleton.bones.find((bone) => bone.getIndex() === best);
+  return { bone: found?.name ?? "", weightMin: minPeak };
 }
 
 function distanceToBox(point: Vector3, min: Vector3, max: Vector3): number {
