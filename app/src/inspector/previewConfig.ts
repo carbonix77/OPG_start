@@ -490,15 +490,25 @@ export const ZORO_ROSTER_PREVIEW: PreviewConfig = {
   ],
 };
 
-/** Sanji specials only. Idle and basic G1As were missing from the local copy. */
+/**
+ * Sanji specials only. Idle and basic G1As were missing from the local copy.
+ * Texture sheets under preview/textures/sanji are Sanji-local (face/skin/cloth/hair).
+ * merge-sanji body meshes are model_0_submesh_N with no Material_N names, so slots are
+ * identity mesh-index → map.json keys. Not Zoro's atlas or mesh indices.
+ */
 export const SANJI_PREVIEW: PreviewConfig = {
   ...FIXTURE_PREVIEW,
   id: "sanji-specials",
-  textureDir: "",
+  textureDir: "preview/textures/sanji",
+  normalSheets: ["skin", "cloth", "face", "hair"],
+  alphaTestSheets: ["hair"],
+  alphaCutOff: 0.25,
   followNodes: FOLLOW_NODE_CANDIDATES,
   idleClip: "Sanji_1290",
   attackClip: "Sanji_1300",
   blendSeconds: 0.28,
+  materialSlotByMesh: Array.from({ length: 32 }, (_, index) => index),
+  sheetByMesh: {},
   behaviors: [
     { id: "idle", clip: "Sanji_1290", label: "Provisional special used as idle stand-in", confidence: "provisional" },
     { id: "basic", clip: "Sanji_1300", label: "Provisional special used as basic stand-in", confidence: "provisional" },
@@ -542,6 +552,7 @@ export function registryCheck(): {
 }
 
 export function meshIndexOf(name: string): number | null {
-  const hit = /(?:^Mesh_|submesh_)(\d+)(?:_|$)/.exec(name);
+  // Battle renames meshes to unit-<id>-…; match Mesh_/submesh_ anywhere in the name.
+  const hit = /(?:Mesh_|submesh_)(\d+)(?:_|$)/.exec(name);
   return hit ? Number(hit[1]) : null;
 }

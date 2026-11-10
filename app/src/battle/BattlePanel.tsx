@@ -21,6 +21,7 @@ const ZORO_ID = "zoro";
 const SANJI_ID = "sanji";
 const ENEMY_A = "enemy-a";
 const ENEMY_B = "enemy-b";
+const ALLY_IDS = new Set([ZORO_ID, SANJI_ID]);
 
 function formatEvent(event: BattleEvent): string {
   switch (event.type) {
@@ -68,9 +69,18 @@ export function BattlePanel(props: {
   const [loadNotes, setLoadNotes] = useState<string[]>([]);
   const liveAction = useRef<{ engineId: number; presentToken: number; unitId: string } | null>(null);
   const mounted = useRef(true);
+  const sessionRef = useRef(0);
+  const autoTimerRef = useRef<number | null>(null);
   const arenaRef = useRef<BattleArena | null>(null);
   const markersRef = useRef<UnitViewRegistry | null>(null);
   const charactersRef = useRef<Map<string, CharacterUnitView>>(new Map());
+
+  const clearAutoTimer = () => {
+    if (autoTimerRef.current !== null) {
+      window.clearTimeout(autoTimerRef.current);
+      autoTimerRef.current = null;
+    }
+  };
 
   const slots = useMemo(
     () =>
@@ -87,6 +97,8 @@ export function BattlePanel(props: {
     mounted.current = true;
     return () => {
       mounted.current = false;
+      clearAutoTimer();
+      sessionRef.current += 1;
       liveAction.current = null;
       for (const unit of charactersRef.current.values()) unit.dispose();
       charactersRef.current.clear();
@@ -103,6 +115,8 @@ export function BattlePanel(props: {
       return;
     }
     let cancelled = false;
+    const session = ++sessionRef.current;
+    clearAutoTimer();
     const scene = props.scene;
     scene.prepareBattleScene();
     const arena = new BattleArena(scene.scene);
@@ -119,9 +133,9 @@ export function BattlePanel(props: {
     arenaRef.current = arena;
     markersRef.current = markers;
     scene.camera.setTarget(arena.cameraTarget());
-    scene.camera.radius = 680;
+    scene.camera.radius = 520;
     scene.camera.alpha = Math.PI / 2;
-    scene.camera.beta = 1.02;
+    scene.camera.beta = 1.05;
 
     const load = async () => {
       const notes: string[] = [];
@@ -138,9 +152,11 @@ export function BattlePanel(props: {
       charactersRef.current.set(SANJI_ID, sanji);
       try {
         const zoroResult = await zoro.load(zoroAsset, previewForAsset("noesis-roster"), slots[0].position);
-        if (cancelled) return;
+        if (cancelled || session !== sessionRef.current) return;
         results.push(zoroResult);
-        notes.push(`Zoro ${zoroResult.meshes} meshes, ${zoroResult.clips.length} clips, ${zoroResult.loadMs} ms.`);
+        notes.push(
+          `Zoro ${zoroResult.meshes} meshes, ${zoroResult.clips.length} clips, ${zoroResult.loadMs} ms, textures ${zoroResult.textureNotes}${zoroResult.textureError ? ` (${zoroResult.textureError})` : ""}.`,
+        );
         zoro.playIdle(ZORO_MANIFEST.idleClip);
         markers.hidePlaceholder(ZORO_ID);
       } catch (error) {
@@ -148,28 +164,31 @@ export function BattlePanel(props: {
       }
       try {
         const sanjiResult = await sanji.load(sanjiAsset, previewForAsset("noesis-sanji"), slots[1].position);
-        if (cancelled) return;
+        if (cancelled || session !== sessionRef.current) return;
         results.push(sanjiResult);
         notes.push(
-          `Sanji ${sanjiResult.meshes} meshes, clips ${sanjiResult.clips.join(", ")}, ${sanjiResult.loadMs} ms. Idle/basic G1As missing locally; using provisional special stand-ins.`,
+          `Sanji ${sanjiResult.meshes} meshes, clips ${sanjiResult.clips.join(", ")}, ${sanjiResult.loadMs} ms, textures ${sanjiResult.textureNotes}${sanjiResult.textureError ? ` (${sanjiResult.textureError})` : ""}. Idle/basic G1As missing; provisional special stand-ins. Sheets are Sanji-local, not Zoro's atlas.`,
         );
         sanji.playIdle(SANJI_MANIFEST.idleClip);
         markers.hidePlaceholder(SANJI_ID);
       } catch (error) {
         notes.push(`Sanji load failed: ${error instanceof Error ? error.message : String(error)}`);
       }
-      if (cancelled) return;
+      if (cancelled || session !== sessionRef.current) return;
       setLoadNotes(notes);
       setReady(results.length === 2);
       const heap = measureHeapMb();
+      const textured = results.filter((row) => row.textured).length;
       props.onStatus(
-        `Loaded ${results.length}/2 real fighters. Heap ${heap ?? "?"} MB. ${notes[notes.length - 1] ?? ""}`,
+        `Loaded ${results.length}/2 fighters (${textured}/2 textured). Heap ${heap ?? "?"} MB.`,
       );
     };
     void load();
 
     return () => {
       cancelled = true;
+      clearAutoTimer();
+      sessionRef.current += 1;
       liveAction.current = null;
       for (const unit of charactersRef.current.values()) unit.dispose();
       charactersRef.current.clear();
@@ -198,8 +217,13 @@ export function BattlePanel(props: {
   const actorId = engine.currentActorId();
   const actor = state.units.find((unit) => unit.id === actorId);
   const actorManifest = actor ? manifestOf(actor.manifestId) : null;
+  const playerActor = actorId && ALLY_IDS.has(actorId) ? actorId : null;
   const canPlayerAct =
-    ready && !busy && actorId === ZORO_ID && selected !== "" && engine.canAct(ZORO_ID, "basic", selected).ok;
+    ready &&
+    !busy &&
+    !!playerActor &&
+    selected !== "" &&
+    engine.canAct(playerActor, "basic", selected).ok;
 
   useEffect(() => {
     arenaRef.current?.highlight(selected || null);
@@ -209,6 +233,7 @@ export function BattlePanel(props: {
     unitId: string,
     skillId: string,
     target: string,
+    session: number,
     onDone: () => void,
   ) => {
     const manifest = manifestOf(engine.getState().units.find((unit) => unit.id === unitId)?.manifestId ?? "");
@@ -238,7 +263,7 @@ export function BattlePanel(props: {
       skill.clipId,
       skill.contact,
       (token) => {
-        if (!mounted.current) return;
+        if (!mounted.current || session !== sessionRef.current) return;
         if (liveAction.current?.presentToken !== token || liveAction.current.engineId !== engineId) return;
         const contact = engine.applyContact(engineId);
         markersRef.current?.flash(target);
@@ -246,7 +271,7 @@ export function BattlePanel(props: {
         refresh(contact);
       },
       (token) => {
-        if (!mounted.current) return;
+        if (!mounted.current || session !== sessionRef.current) return;
         if (liveAction.current?.presentToken !== token || liveAction.current.engineId !== engineId) return;
         refresh(engine.finishAction(engineId));
         liveAction.current = null;
@@ -264,41 +289,60 @@ export function BattlePanel(props: {
     }
   };
 
-  const autoResolveUntilPlayerOrEnd = () => {
+  const autoResolveUntilPlayerOrEnd = (session: number) => {
     const step = () => {
+      if (!mounted.current || session !== sessionRef.current) return;
       const current = engine.getState();
-      if (current.phase === "ended") return;
+      if (current.phase === "ended") {
+        setBusy(false);
+        return;
+      }
       const nextActor = engine.currentActorId();
-      if (!nextActor || nextActor === ZORO_ID) return;
+      if (!nextActor || ALLY_IDS.has(nextActor)) {
+        setBusy(false);
+        return;
+      }
       const unit = current.units.find((row) => row.id === nextActor);
-      if (!unit?.alive) return;
+      if (!unit?.alive) {
+        setBusy(false);
+        return;
+      }
       const target =
         current.units.find((row) => row.alive && row.team !== unit.team && row.id === selected) ??
         current.units.find((row) => row.alive && row.team !== unit.team);
-      if (!target) return;
-      const skillId = unit.manifestId === SANJI_MANIFEST.id ? "basic" : unit.manifestId === ZORO_MANIFEST.id ? "basic" : "dummy-poke";
-      setBusy(true);
-      playUnitSkill(unit.id, skillId, target.id, () => {
+      if (!target) {
         setBusy(false);
-        if (engine.currentActorId() && engine.currentActorId() !== ZORO_ID && engine.getState().phase !== "ended") {
-          window.setTimeout(step, 40);
+        return;
+      }
+      setBusy(true);
+      playUnitSkill(unit.id, "dummy-poke", target.id, session, () => {
+        if (!mounted.current || session !== sessionRef.current) return;
+        const follow = engine.currentActorId();
+        if (follow && !ALLY_IDS.has(follow) && engine.getState().phase !== "ended") {
+          clearAutoTimer();
+          autoTimerRef.current = window.setTimeout(step, 40);
+        } else {
+          setBusy(false);
         }
       });
     };
     step();
   };
 
-  const runZoroBasic = () => {
-    if (!canPlayerAct || !selected) return;
+  const runPlayerBasic = () => {
+    if (!canPlayerAct || !selected || !playerActor) return;
+    const session = sessionRef.current;
     setBusy(true);
-    playUnitSkill(ZORO_ID, "basic", selected, () => {
-      autoResolveUntilPlayerOrEnd();
-      setBusy(false);
+    playUnitSkill(playerActor, "basic", selected, session, () => {
+      if (!mounted.current || session !== sessionRef.current) return;
+      autoResolveUntilPlayerOrEnd(session);
     });
   };
 
   const reset = () => {
     if (busy) return;
+    clearAutoTimer();
+    sessionRef.current += 1;
     liveAction.current = null;
     for (const unit of charactersRef.current.values()) unit.cancelAction();
     engine.reset(SEED);
@@ -306,6 +350,8 @@ export function BattlePanel(props: {
     refresh();
     charactersRef.current.get(ZORO_ID)?.playIdle(ZORO_MANIFEST.idleClip);
     charactersRef.current.get(SANJI_ID)?.playIdle(SANJI_MANIFEST.idleClip);
+    markersRef.current?.hidePlaceholder(ZORO_ID);
+    markersRef.current?.hidePlaceholder(SANJI_ID);
     for (const unit of engine.getState().units) {
       markersRef.current?.setAlive(unit.id, true);
       charactersRef.current.get(unit.id)?.setEnabled(true);
@@ -318,12 +364,12 @@ export function BattlePanel(props: {
     <div className="battle-panel">
       <h1>Battle preview 2v2</h1>
       <p className="note">
-        Zoro and Sanji load as separate skinned roots. Sanji uses provisional special stand-ins for idle/basic because those
-        G1As were not in the local inventory. Enemies stay labeled interim synthetics.
+        Player controls the current alive ally (Zoro or Sanji). Sanji clips are provisional specials. Enemies are interim
+        synthetics.
       </p>
       <div className="battle-hp">
         {state.units.map((unit) => (
-          <p key={unit.id}>
+          <p key={unit.id} className={unit.id === actorId ? "battle-actor" : undefined}>
             {unit.label} HP {unit.hp}/{unit.maxHp} {unit.alive ? "" : "(down)"} [{unit.team}]
           </p>
         ))}
@@ -348,8 +394,8 @@ export function BattlePanel(props: {
         </select>
       </label>
       <div className="row">
-        <button type="button" disabled={!canPlayerAct} onClick={runZoroBasic}>
-          Basic Attack
+        <button type="button" disabled={!canPlayerAct} onClick={runPlayerBasic}>
+          {playerActor === SANJI_ID ? "Sanji basic (provisional)" : playerActor === ZORO_ID ? "Zoro basic" : "Basic Attack"}
         </button>
         <button type="button" disabled={busy} onClick={reset}>
           Reset

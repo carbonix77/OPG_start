@@ -10,6 +10,7 @@ import {
 } from "@babylonjs/core";
 import { assetUrl, type LocalAsset } from "../inspector/assets";
 import { FOLLOW_NODE_CANDIDATES, type PreviewConfig } from "../inspector/previewConfig";
+import { applyTemporaryLook, type TemporaryLook } from "../inspector/textures";
 
 export interface CharacterLoadResult {
   unitId: string;
@@ -19,6 +20,9 @@ export interface CharacterLoadResult {
   skeletons: number;
   joints: number;
   loadMs: number;
+  textured: boolean;
+  textureNotes: number;
+  textureError: string;
 }
 
 /**
@@ -38,6 +42,7 @@ export class CharacterUnitView {
   private disposed = false;
   private slot = new Vector3();
   private recenterObserver: Observer<Scene> | null = null;
+  private look: TemporaryLook | null = null;
   assetId = "";
 
   constructor(
@@ -74,11 +79,16 @@ export class CharacterUnitView {
       if (!mesh.parent) mesh.setParent(this.root);
     }
     const excluded = new Set(preview?.excludedMeshIndices ?? []);
+    const body: Mesh[] = [];
     for (const mesh of container.meshes) {
-      if (!(mesh instanceof Mesh)) continue;
+      if (!(mesh instanceof Mesh) || mesh.getTotalVertices() <= 0) continue;
       const hit = /(?:Mesh_|submesh_)(\d+)(?:_|$)/.exec(mesh.name);
       const index = hit ? Number(hit[1]) : null;
-      if (index !== null && excluded.has(index)) mesh.setEnabled(false);
+      if (index !== null && excluded.has(index)) {
+        mesh.setEnabled(false);
+        continue;
+      }
+      body.push(mesh);
     }
     this.groups = [...container.animationGroups];
     for (const group of this.groups) {
@@ -92,15 +102,44 @@ export class CharacterUnitView {
     this.root.rotation.y = offset[0] < 0 ? Math.PI / 2 : -Math.PI / 2;
     this.startRecenter();
     this.snapToSlot();
+    let textured = false;
+    let textureNotes = 0;
+    let textureError = "";
+    if (preview?.textureDir) {
+      try {
+        this.look = await applyTemporaryLook(this.scene, body, {
+          textureDir: preview.textureDir,
+          materialSlotByMesh: preview.materialSlotByMesh,
+          sheetByMesh: preview.sheetByMesh,
+          normalSheets: preview.normalSheets,
+          alphaTestSheets: preview.alphaTestSheets,
+          alphaCutOff: preview.alphaCutOff,
+        });
+        if (this.disposed) {
+          this.look.restore();
+          this.look = null;
+          throw new Error("Character unit disposed during texture apply");
+        }
+        textured = this.look.notes.some((note) => note.sheet !== "");
+        textureNotes = this.look.notes.filter((note) => note.sheet !== "").length;
+      } catch (error) {
+        textureError = error instanceof Error ? error.message : String(error);
+      }
+    } else {
+      textureError = "No textureDir in preview config.";
+    }
     const joints = container.skeletons.reduce((sum, skeleton) => sum + skeleton.bones.length, 0);
     return {
       unitId: this.unitId,
       assetId: asset.id,
       clips: this.groups.map((group) => group.name),
-      meshes: container.meshes.filter((mesh) => mesh instanceof Mesh && mesh.getTotalVertices() > 0).length,
+      meshes: body.length,
       skeletons: container.skeletons.length,
       joints,
       loadMs: Math.round(performance.now() - started),
+      textured,
+      textureNotes,
+      textureError,
     };
   }
 
@@ -213,6 +252,8 @@ export class CharacterUnitView {
   private disposeContent(): void {
     this.cancelAction();
     this.stopRecenter();
+    this.look?.restore();
+    this.look = null;
     this.follow = null;
     this.groups = [];
     if (this.container) {

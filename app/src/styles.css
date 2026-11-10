@@ -25,10 +25,16 @@ button:disabled { opacity: 0.4; }
 .facts { padding: 8px 12px; background: #141518; overflow: auto; max-height: 220px; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
 td, th { border-bottom: 1px solid #333; text-align: left; padding: 2px 4px; vertical-align: top; }
-.battle-panel { display: grid; gap: 8px; }
-.battle-hp p { margin: 0 0 6px; }
-.battle-log { list-style: none; padding: 0; margin: 0; max-height: 220px; overflow: auto; color: #b7b3ac; }
-.battle-log li { border-bottom: 1px solid #333; padding: 4px 0; font-size: 12px; }
+.app.battle-mode { grid-template-columns: 260px 1fr; }
+.app.battle-mode aside { padding: 10px 12px; }
+.app.battle-mode .facts { max-height: 96px; }
+.battle-panel { display: grid; gap: 6px; }
+.battle-panel h1 { font-size: 16px; }
+.battle-panel .note { margin: 0 0 6px; font-size: 12px; }
+.battle-hp p { margin: 0 0 4px; font-size: 12px; }
+.battle-hp .battle-actor { color: #f0e6b0; }
+.battle-log { list-style: none; padding: 0; margin: 0; max-height: 140px; overflow: auto; color: #b7b3ac; }
+.battle-log li { border-bottom: 1px solid #333; padding: 3px 0; font-size: 11px; }
 @media (max-width: 800px) {
   .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   aside { max-height: 42vh; }

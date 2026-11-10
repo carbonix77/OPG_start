@@ -110,7 +110,16 @@ export function App() {
   const behavior = preview?.behaviors.find((item) => item.id === behaviorId) ?? preview?.behaviors[0];
 
   return (
-    <div className={["app", viewportOnly ? "viewport-only" : "", wideFrame ? "frame-wide" : ""].filter(Boolean).join(" ")}>
+    <div
+      className={[
+        "app",
+        viewportOnly ? "viewport-only" : "",
+        wideFrame ? "frame-wide" : "",
+        mode === "battle" ? "battle-mode" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <aside>
         <label>
           Mode

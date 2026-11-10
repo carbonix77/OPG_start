@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { meshIndexOf, previewForAsset } from "../inspector/previewConfig";
 import { BattleEngine, makeBalancedFiveVFive } from "./engine";
 import { FIXTURE_MANIFEST, SANJI_MANIFEST, ZORO_MANIFEST, skillOf } from "./manifests";
 
@@ -174,6 +175,35 @@ describe("BattleEngine", () => {
     expect(SANJI_MANIFEST.idleClip).toBe("Sanji_1290");
     expect(SANJI_MANIFEST.skills[0]?.clipId).toBe("Sanji_1300");
     expect(enemyB?.hp === 80 || (enemyB && enemyB.hp < enemyB.maxHp)).toBe(true);
+  });
+
+  it("lets Sanji act on a chosen target after Zoro without sharing skill ids", () => {
+    const engine = new BattleEngine(3, [
+      { id: "zoro", manifestId: ZORO_MANIFEST.id, team: "alpha", speed: 30 },
+      { id: "sanji", manifestId: SANJI_MANIFEST.id, team: "alpha", speed: 20 },
+      { id: "enemy-a", manifestId: "synthetic-dummy", team: "bravo", speed: 1, maxHp: 100 },
+      { id: "enemy-b", manifestId: "synthetic-dummy", team: "bravo", speed: 1, maxHp: 100 },
+    ]);
+    expect(engine.currentActorId()).toBe("zoro");
+    engine.resolveFully("zoro", "basic", "enemy-a");
+    expect(engine.currentActorId()).toBe("sanji");
+    expect(engine.canAct("sanji", "basic", "enemy-b").ok).toBe(true);
+    engine.resolveFully("sanji", "basic", "enemy-b");
+    const enemyA = engine.getState().units.find((unit) => unit.id === "enemy-a")!;
+    const enemyB = engine.getState().units.find((unit) => unit.id === "enemy-b")!;
+    expect(enemyA.hp).toBe(100 - (skillOf(ZORO_MANIFEST, "basic")?.damage ?? 0));
+    expect(enemyB.hp).toBe(100 - (skillOf(SANJI_MANIFEST, "basic")?.damage ?? 0));
+  });
+
+  it("reads battle-prefixed mesh indices and Sanji-local texture config", () => {
+    expect(meshIndexOf("unit-zoro-Mesh_36")).toBe(36);
+    expect(meshIndexOf("unit-sanji-model_0_submesh_8")).toBe(8);
+    const sanji = previewForAsset("noesis-sanji");
+    const zoro = previewForAsset("noesis-roster");
+    expect(sanji?.textureDir).toBe("preview/textures/sanji");
+    expect(zoro?.textureDir).toBe("preview/textures/zoro");
+    expect(sanji?.textureDir).not.toBe(zoro?.textureDir);
+    expect(sanji?.materialSlotByMesh?.[8]).toBe(8);
   });
 
   it("supports selectable 2v2 targets and skips a defeated enemy", () => {
