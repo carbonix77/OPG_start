@@ -25,6 +25,12 @@ export const LOCAL_ASSETS: LocalAsset[] = [
     relativePath: "private-assets/validation/merge-1320/merged.gltf",
     note: "Zoro_1320, Zoro_1322, and Zoro_1324 are separate clips",
   },
+  {
+    id: "noesis-idle",
+    label: "Noesis glTF unnamed candidates",
+    relativePath: "private-assets/validation/merge-idle/merged.gltf",
+    note: "Unnamed Zoro_0000, 0001, 0051, 0060, and 0061. Not a confirmed idle or hit.",
+  },
 ];
 
 export function assetUrl(relativePath: string): { rootUrl: string; fileName: string } {

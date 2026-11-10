@@ -7,16 +7,19 @@ import {
   HemisphericLight,
   Mesh,
   MeshBuilder,
+  PBRMaterial,
   Scene,
   SceneLoader,
   SkeletonViewer,
+  Texture,
   TransformNode,
   Vector3,
   type AbstractMesh,
   type AnimationGroup,
+  type Material,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
-import { assetUrl, type LocalAsset } from "./assets";
+import { assetUrl, fileUrl, type LocalAsset } from "./assets";
 import { applyTemporaryLook, type TemporaryLook, type TextureNote } from "./textures";
 
 export interface MeshRow {
@@ -85,6 +88,9 @@ export class InspectorScene {
   private assetId = "";
   private loadToken = 0;
   private temporary: TemporaryLook | null = null;
+  private readonly previewRoot: TransformNode;
+  private recenter = false;
+  private sheetTest: { mesh: Mesh; previous: Material | null; material: PBRMaterial; texture: Texture } | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.engine = new Engine(canvas, true, { preserveDrawingBuffer: true });
@@ -106,7 +112,9 @@ export class InspectorScene {
       mat.alpha = 1;
     }
     ground.receiveShadows = false;
+    this.previewRoot = new TransformNode("previewRoot", this.scene);
     this.engine.runRenderLoop(() => {
+      this.applyRecenter();
       if (this.follow && this.followNode) {
         const p = this.followNode.getAbsolutePosition();
         this.camera.target.copyFrom(p);
@@ -136,6 +144,7 @@ export class InspectorScene {
         group.speedRatio = 1;
       }
       this.followNode = this.findFollowNode();
+      this.attachPreviewRoot(result.transformNodes, result.meshes);
       this.frameCamera();
       return this.facts("");
     } catch (error) {
@@ -218,6 +227,48 @@ export class InspectorScene {
     if (!enabled) this.frameCamera();
   }
 
+  /**
+   * Cancels the follow node's local X/Z in a preview parent.
+   * The clip keys are not changed. Vertical motion stays.
+   */
+  setRecenter(enabled: boolean): void {
+    this.recenter = enabled;
+    if (!enabled) this.previewRoot.position.setAll(0);
+  }
+
+  /**
+   * Puts one sheet on one mesh. Other meshes keep the temporary map.
+   * Passing an empty sheet restores that mesh.
+   */
+  setMeshSheet(meshName: string, sheet: string): string {
+    this.clearSheetTest();
+    if (!sheet) return "";
+    const mesh = this.scene.getMeshByName(meshName);
+    if (!(mesh instanceof Mesh)) return `${meshName} is not loaded`;
+    const source = mesh.material?.name ?? "(none)";
+    const texture = new Texture(fileUrl(`preview/textures/zoro/${sheet}.png`), this.scene, false, false);
+    texture.gammaSpace = true;
+    const material = new PBRMaterial(`sheet-test-${meshName}`, this.scene);
+    material.albedoTexture = texture;
+    material.metallic = 0;
+    material.roughness = 0.85;
+    material.backFaceCulling = false;
+    material.twoSidedLighting = true;
+    this.sheetTest = { mesh, previous: mesh.material, material, texture };
+    mesh.material = material;
+    return `${meshName} uses ${source}. Test sheet ${sheet} is on this mesh only.`;
+  }
+
+  /** Diagnostic visibility. Show all is the default. Nothing is saved. */
+  setVisibilityPreset(preset: "all" | "hide-static"): void {
+    if (preset === "all") {
+      this.setVisibleMeshes(null);
+      return;
+    }
+    const hide = new Set(["Mesh_3", "Mesh_22", "Mesh_23", "Mesh_24"]);
+    this.setVisibleMeshes(this.bodyMeshes().map((mesh) => mesh.name).filter((name) => !hide.has(name)));
+  }
+
   setSkeletonVisible(enabled: boolean): void {
     this.viewer?.dispose();
     this.viewer = null;
@@ -253,6 +304,7 @@ export class InspectorScene {
 
   /** Reconstructed albedo/normal assignment. Restores the loaded materials when disabled. */
   async setTemporaryTextures(enabled: boolean): Promise<TextureNote[]> {
+    this.clearSheetTest();
     this.temporary?.restore();
     this.temporary = null;
     if (!enabled) return [];
@@ -411,7 +463,36 @@ export class InspectorScene {
     for (const node of result.transformNodes) node.dispose();
   }
 
+  private applyRecenter(): void {
+    if (!this.recenter || !this.followNode) {
+      if (this.previewRoot.position.lengthSquared() !== 0) this.previewRoot.position.setAll(0);
+      return;
+    }
+    const local = this.followNode.position;
+    this.previewRoot.position.set(-local.x, 0, -local.z);
+  }
+
+  private attachPreviewRoot(nodes: TransformNode[], meshes: AbstractMesh[]): void {
+    for (const node of nodes) {
+      if (!node.parent && node !== this.previewRoot) node.setParent(this.previewRoot);
+    }
+    for (const mesh of meshes) {
+      if (!mesh.parent && mesh.name !== "ground") mesh.setParent(this.previewRoot);
+    }
+  }
+
+  private clearSheetTest(): void {
+    if (!this.sheetTest) return;
+    const { mesh, previous, material, texture } = this.sheetTest;
+    if (!mesh.isDisposed()) mesh.material = previous;
+    material.dispose(false, false);
+    texture.dispose();
+    this.sheetTest = null;
+  }
+
   private disposeLoaded(): void {
+    this.clearSheetTest();
+    this.previewRoot.position.setAll(0);
     this.temporary?.restore();
     this.temporary = null;
     this.viewer?.dispose();
@@ -429,7 +510,9 @@ export class InspectorScene {
     for (const material of [...this.scene.materials]) {
       if (material.name !== "default material") material.dispose();
     }
-    for (const node of [...this.scene.transformNodes]) node.dispose();
+    for (const node of [...this.scene.transformNodes]) {
+      if (node !== this.previewRoot) node.dispose();
+    }
   }
 
   private stop(): void {
