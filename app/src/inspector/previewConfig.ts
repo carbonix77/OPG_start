@@ -45,6 +45,11 @@ export interface PreviewEffect {
   kind: "trail" | "bloom" | "burst";
   /** Bone the effect follows. The scene falls back to the follow node. */
   bone: string;
+  /**
+   * Mesh whose far bound places the anchor. Null keeps offset.
+   * The bound is measured on the loaded mesh. It is not a game socket.
+   */
+  tipMeshIndex: number | null;
   offset: [number, number, number];
   rotation: [number, number, number];
   /** Trail half-width, bloom diameter, or burst travel. */
@@ -126,6 +131,8 @@ export interface PreviewConfig {
     keyDirection: [number, number, number];
     rimIntensity: number;
     rimDirection: [number, number, number];
+    /** Exponential fog. Zero leaves the clear color flat. */
+    fogDensity: number;
   };
   shots: PreviewShot[];
   /** Null when this character has no cinematic pass. */
@@ -197,6 +204,7 @@ export const ZORO_PREVIEW: PreviewConfig = {
     keyDirection: [-0.25, -1, -0.45],
     rimIntensity: 0.55,
     rimDirection: [0.7, -0.35, 0.6],
+    fogDensity: 0.0011,
   },
   shots: [
     {
@@ -246,17 +254,17 @@ export const ZORO_PREVIEW: PreviewConfig = {
   ],
   cinematic: {
     keys: [
-      { t: 0, alpha: Math.PI / 2, beta: 1.18, radius: 377, targetOffset: [0, 22, 0] },
-      { t: 0.08, alpha: Math.PI / 2 + 0.12, beta: 1.1, radius: 327, targetOffset: [0, 22, 0] },
-      { t: 0.12, alpha: Math.PI / 2 + 0.2, beta: 1.05, radius: 349, targetOffset: [0, 22, 0] },
-      { t: 0.22, alpha: Math.PI / 2 + 0.32, beta: 1.14, radius: 315, targetOffset: [0, 22, 0] },
-      { t: 0.35, alpha: Math.PI / 2 + 0.42, beta: 1.18, radius: 320, targetOffset: [0, 22, 0] },
-      { t: 0.55, alpha: Math.PI / 2 + 0.2, beta: 1.16, radius: 297, targetOffset: [0, 22, 0] },
-      { t: 0.75, alpha: Math.PI / 2 + 0.04, beta: 1.12, radius: 434, targetOffset: [0, 22, 0] },
-      { t: 0.92, alpha: Math.PI / 2 - 0.12, beta: 1.16, radius: 338, targetOffset: [0, 22, 0] },
-      { t: 1, alpha: Math.PI / 2, beta: 1.18, radius: 458, targetOffset: [0, 22, 0] },
+      { t: 0, alpha: Math.PI / 2, beta: 1.24, radius: 348, targetOffset: [0, 18, 0] },
+      { t: 0.08, alpha: Math.PI / 2 + 0.12, beta: 1.16, radius: 310, targetOffset: [0, 18, 0] },
+      { t: 0.12, alpha: Math.PI / 2 + 0.2, beta: 1.12, radius: 340, targetOffset: [0, 20, 0] },
+      { t: 0.22, alpha: Math.PI / 2 + 0.32, beta: 1.2, radius: 300, targetOffset: [0, 18, 0] },
+      { t: 0.35, alpha: Math.PI / 2 + 0.42, beta: 1.24, radius: 305, targetOffset: [0, 16, 0] },
+      { t: 0.55, alpha: Math.PI / 2 + 0.2, beta: 1.22, radius: 285, targetOffset: [0, 16, 0] },
+      { t: 0.75, alpha: Math.PI / 2 + 0.04, beta: 1.18, radius: 410, targetOffset: [0, 18, 0] },
+      { t: 0.92, alpha: Math.PI / 2 - 0.12, beta: 1.22, radius: 325, targetOffset: [0, 18, 0] },
+      { t: 1, alpha: Math.PI / 2, beta: 1.24, radius: 430, targetOffset: [0, 18, 0] },
     ],
-    idleHold: { t: 0, alpha: Math.PI / 2, beta: 1.2, radius: 460, targetOffset: [0, 22, 0] },
+    idleHold: { t: 0, alpha: Math.PI / 2, beta: 1.26, radius: 430, targetOffset: [0, 16, 0] },
     effects: [
       {
         id: "mouth-trail",
@@ -264,9 +272,10 @@ export const ZORO_PREVIEW: PreviewConfig = {
         seconds: 2.6,
         kind: "trail",
         bone: "0x43b3b303",
+        tipMeshIndex: 36,
         offset: [22, 0, 0],
         rotation: [0, 0, 0],
-        size: 4.5,
+        size: 2.1,
         color: [0.78, 0.9, 1],
       },
       {
@@ -275,31 +284,34 @@ export const ZORO_PREVIEW: PreviewConfig = {
         seconds: 2.2,
         kind: "trail",
         bone: "SK_R_Weapon",
+        tipMeshIndex: 39,
         offset: [0, 22, 0],
         rotation: [0, 0, 0],
-        size: 3.2,
+        size: 1.6,
         color: [0.9, 0.94, 1],
       },
       {
         id: "strike-bloom",
         t: 0.33,
-        seconds: 0.16,
+        seconds: 0.2,
         kind: "bloom",
         bone: "0x43b3b303",
+        tipMeshIndex: 36,
         offset: [22, 0, 0],
         rotation: [0, 0, 0],
-        size: 16,
-        color: [1, 0.95, 0.82],
+        size: 7,
+        color: [1, 0.94, 0.8],
       },
       {
         id: "strike-burst",
         t: 0.33,
-        seconds: 0.26,
+        seconds: 0.14,
         kind: "burst",
         bone: "0x43b3b303",
+        tipMeshIndex: 36,
         offset: [22, 0, 0],
         rotation: [0, 0, 0],
-        size: 16,
+        size: 5,
         color: [1, 0.96, 0.88],
       },
     ],

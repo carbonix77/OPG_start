@@ -9,6 +9,7 @@ import {
   Mesh,
   MeshBuilder,
   PBRMaterial,
+  Quaternion,
   Scene,
   SceneLoader,
   SkeletonViewer,
@@ -128,6 +129,7 @@ interface RuntimeEffect {
   t: number;
   seconds: number;
   width: number;
+  tipMeshIndex: number | null;
   anchor: TransformNode;
   mesh: Mesh;
   material: StandardMaterial;
@@ -505,10 +507,14 @@ export class InspectorScene {
       this.sun.direction.set(-0.4, -1, 0.3);
       this.rim.intensity = 0;
       this.ground.scaling.set(1, 1, 1);
+      this.scene.fogMode = Scene.FOGMODE_NONE;
       return;
     }
     this.ground.scaling.set(12, 1, 12);
     this.scene.clearColor.set(stage.clear[0], stage.clear[1], stage.clear[2], 1);
+    this.scene.fogMode = stage.fogDensity > 0 ? Scene.FOGMODE_EXP2 : Scene.FOGMODE_NONE;
+    this.scene.fogDensity = stage.fogDensity;
+    this.scene.fogColor.set(stage.clear[0], stage.clear[1], stage.clear[2]);
     this.groundMat.diffuseColor.set(stage.ground[0], stage.ground[1], stage.ground[2]);
     this.sun.intensity = stage.keyIntensity;
     this.sun.direction.set(stage.keyDirection[0], stage.keyDirection[1], stage.keyDirection[2]);
@@ -1192,16 +1198,17 @@ export class InspectorScene {
         continue;
       }
       const fade = Math.sin(Math.PI * clamp01(u));
+      if (fx.kind !== "trail") this.placeOnMeshTip(fx.tipMeshIndex, fx.anchor);
       fx.anchor.computeWorldMatrix(true);
       if (fx.kind === "trail") {
         this.recordTrail(fx);
         fx.mesh.setEnabled(fx.samples.length >= 2);
-        fx.material.alpha = 0.42 + 0.38 * fade;
+        fx.material.alpha = 0.32 + 0.34 * fade;
         continue;
       }
       fx.mesh.setEnabled(true);
-      fx.material.alpha = fx.kind === "bloom" ? 0.15 + 0.45 * fade : 0.8 * fade;
-      if (fx.kind === "bloom") fx.mesh.scaling.setAll(0.55 + 0.9 * fade);
+      fx.material.alpha = fx.kind === "bloom" ? 0.14 + 0.26 * fade : 0.55 * fade;
+      if (fx.kind === "bloom") this.alignBloom(fx, fade);
       if (fx.kind === "burst") this.placeBurst(fx, fade);
     }
   }
@@ -1235,6 +1242,7 @@ export class InspectorScene {
     anchor.parent = this.scene.getTransformNodeByName(effect.bone) ?? this.followNode;
     anchor.position.set(effect.offset[0], effect.offset[1], effect.offset[2]);
     anchor.rotation.set(effect.rotation[0], effect.rotation[1], effect.rotation[2]);
+    this.placeOnMeshTip(effect.tipMeshIndex, anchor);
     const material = new StandardMaterial(`preview-fx-mat-${effect.id}`, this.scene);
     material.emissiveColor = new Color3(effect.color[0], effect.color[1], effect.color[2]);
     material.diffuseColor = Color3.Black();
@@ -1258,7 +1266,7 @@ export class InspectorScene {
     const bits =
       effect.kind === "burst"
         ? Array.from({ length: 8 }, (_, index) => {
-            const bit = MeshBuilder.CreateSphere(`preview-fx-bit-${effect.id}-${index}`, { diameter: 3.2, segments: 6 }, this.scene);
+            const bit = MeshBuilder.CreateSphere(`preview-fx-bit-${effect.id}-${index}`, { diameter: 1.5, segments: 6 }, this.scene);
             bit.parent = anchor;
             bit.material = material;
             bit.setEnabled(false);
@@ -1271,6 +1279,7 @@ export class InspectorScene {
       t: effect.t,
       seconds: effect.seconds,
       width: effect.size,
+      tipMeshIndex: effect.tipMeshIndex,
       anchor,
       mesh,
       material,
@@ -1290,6 +1299,7 @@ export class InspectorScene {
   }
 
   private recordTrail(fx: RuntimeEffect): void {
+    if (fx.samples.length === 0) this.placeOnMeshTip(fx.tipMeshIndex, fx.anchor);
     const pos = fx.anchor.getAbsolutePosition().clone();
     const last = fx.samples[fx.samples.length - 1];
     if (!last || Vector3.DistanceSquared(last, pos) > 0.16) fx.samples.push(pos);
@@ -1298,22 +1308,24 @@ export class InspectorScene {
   }
 
   private redrawTrail(fx: RuntimeEffect): void {
+    const path = this.smoothPath(fx.samples);
     const left: Vector3[] = [];
     const right: Vector3[] = [];
-    const count = fx.samples.length;
+    const count = path.length;
     for (let i = 0; i < count; i += 1) {
-      const prev = fx.samples[Math.max(0, i - 1)];
-      const next = fx.samples[Math.min(count - 1, i + 1)];
+      const prev = path[Math.max(0, i - 1)];
+      const next = path[Math.min(count - 1, i + 1)];
       next.subtractToRef(prev, this.trailDir);
       if (this.trailDir.lengthSquared() < 1e-4) this.trailDir.set(0, 0, 1);
       this.trailDir.normalize();
-      this.camera.position.subtractToRef(fx.samples[i], this.trailSide);
+      this.camera.position.subtractToRef(path[i], this.trailSide);
       Vector3.CrossToRef(this.trailDir, this.trailSide, this.trailSide);
       if (this.trailSide.lengthSquared() < 1e-4) Vector3.CrossToRef(this.trailDir, Vector3.Up(), this.trailSide);
-      const taper = 0.35 + (0.65 * i) / Math.max(1, count - 1);
+      const along = i / Math.max(1, count - 1);
+      const taper = 0.15 + 0.85 * along * along;
       this.trailSide.normalize().scaleInPlace(fx.width * taper);
-      left.push(fx.samples[i].add(this.trailSide));
-      right.push(fx.samples[i].subtract(this.trailSide));
+      left.push(path[i].add(this.trailSide));
+      right.push(path[i].subtract(this.trailSide));
     }
     fx.mesh.dispose(false, false);
     fx.mesh = MeshBuilder.CreateRibbon(
@@ -1323,6 +1335,72 @@ export class InspectorScene {
     );
     fx.mesh.material = fx.material;
     fx.mesh.setEnabled(true);
+  }
+
+  /** Rounds the sampled bone path so a short ribbon does not show its corners. */
+  private smoothPath(samples: Vector3[]): Vector3[] {
+    if (samples.length < 3) return samples.map((sample) => sample.clone());
+    const steps = 3;
+    const path: Vector3[] = [];
+    for (let i = 0; i < samples.length - 1; i += 1) {
+      const p0 = samples[Math.max(0, i - 1)];
+      const p1 = samples[i];
+      const p2 = samples[i + 1];
+      const p3 = samples[Math.min(samples.length - 1, i + 2)];
+      for (let step = 0; step < steps; step += 1) path.push(this.catmull(p0, p1, p2, p3, step / steps));
+    }
+    path.push(samples[samples.length - 1].clone());
+    return path;
+  }
+
+  private catmull(p0: Vector3, p1: Vector3, p2: Vector3, p3: Vector3, t: number): Vector3 {
+    const t2 = t * t;
+    const t3 = t2 * t;
+    const axis = (a: number, b: number, c: number, d: number) =>
+      0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+    return new Vector3(axis(p0.x, p1.x, p2.x, p3.x), axis(p0.y, p1.y, p2.y, p3.y), axis(p0.z, p1.z, p2.z, p3.z));
+  }
+
+  /**
+   * Moves the anchor to the loaded mesh corner farthest from the bone.
+   * Keeps the config offset when that mesh is missing.
+   */
+  private placeOnMeshTip(tipMeshIndex: number | null, anchor: TransformNode): void {
+    const bone = anchor.parent;
+    if (tipMeshIndex === null || !(bone instanceof TransformNode)) return;
+    const mesh = this.bodyMeshes().find((item) => meshIndexOf(item.name) === tipMeshIndex);
+    if (!mesh) return;
+    mesh.refreshBoundingInfo(true, false);
+    mesh.computeWorldMatrix(true);
+    bone.computeWorldMatrix(true);
+    const origin = bone.getAbsolutePosition();
+    let farthest: Vector3 | null = null;
+    let best = 0;
+    for (const corner of mesh.getBoundingInfo().boundingBox.vectorsWorld) {
+      const distance = Vector3.DistanceSquared(corner, origin);
+      if (distance > best) {
+        best = distance;
+        farthest = corner;
+      }
+    }
+    if (!farthest || best < 1) return;
+    const local = Vector3.TransformCoordinates(farthest, bone.getWorldMatrix().clone().invert());
+    anchor.position.copyFrom(local);
+  }
+
+  /** Stretches the bloom along the measured tip instead of leaving a round flash. */
+  private alignBloom(fx: RuntimeEffect, fade: number): void {
+    const direction = fx.anchor.position.clone();
+    if (direction.lengthSquared() < 1e-4) direction.set(1, 0, 0);
+    direction.normalize();
+    const axis = Vector3.Cross(Vector3.Right(), direction);
+    const angle = Math.acos(Math.min(1, Math.max(-1, Vector3.Dot(Vector3.Right(), direction))));
+    fx.mesh.rotationQuaternion =
+      axis.lengthSquared() < 1e-6
+        ? Quaternion.RotationAxis(Vector3.Up(), direction.x < 0 ? Math.PI : 0)
+        : Quaternion.RotationAxis(axis.normalize(), angle);
+    const pulse = 0.7 + 0.3 * fade;
+    fx.mesh.scaling.set(pulse * 3.4, pulse * 0.28, pulse * 0.28);
   }
 
   private placeBurst(fx: RuntimeEffect, fade: number): void {
@@ -1344,12 +1422,13 @@ export class InspectorScene {
       const start = fx.t;
       const end = fx.t + span;
       if (normalized < start || normalized > end) continue;
-      const lookback = duration > 0 ? 0.45 / duration : 0.05;
+      const lookback = duration > 0 ? 0.28 / duration : 0.05;
       const from = Math.max(start, normalized - lookback);
       fx.samples = [];
       const steps = 12;
       for (let i = 0; i <= steps; i += 1) {
         this.poseClip(this.preview?.attackClip ?? "", from + ((normalized - from) * i) / steps);
+        if (i === 0) this.placeOnMeshTip(fx.tipMeshIndex, fx.anchor);
         fx.anchor.computeWorldMatrix(true);
         fx.samples.push(fx.anchor.getAbsolutePosition().clone());
       }
@@ -1389,6 +1468,7 @@ export class InspectorScene {
       t: 0,
       seconds: 1,
       width: 0.2,
+      tipMeshIndex: null,
       anchor,
       mesh: this.blankRibbon("fixture-trail"),
       material: new StandardMaterial("preview-fx-mat-fixture-trail", this.scene),
