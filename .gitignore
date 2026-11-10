@@ -24,7 +24,6 @@ private-assets/
 *.rar
 *.exe
 *.dll
-reports/screenshots/
 __pycache__/
 *.pyc
 
