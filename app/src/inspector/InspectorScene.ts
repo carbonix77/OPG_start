@@ -1,4 +1,5 @@
 import {
+  Animation,
   ArcRotateCamera,
   Color3,
   Color4,
@@ -16,7 +17,7 @@ import {
   TransformNode,
   Vector3,
   type AbstractMesh,
-  type AnimationGroup,
+  AnimationGroup,
   type Material,
   type Observer,
 } from "@babylonjs/core";
@@ -112,6 +113,8 @@ export interface CinematicMeasure {
   maxBetaStep: number;
   maxRadiusStep: number;
   maxTargetStep: number;
+  minFps: number;
+  p95FrameMs: number;
   rootWorldZ: [number, number];
   rootLocalZ: { attackStart: number; attackEnd: number; idleStart: number };
   effectWindows: Array<{ id: string; from: number; to: number }>;
@@ -124,8 +127,12 @@ interface RuntimeEffect {
   kind: PreviewEffect["kind"];
   t: number;
   seconds: number;
+  width: number;
+  anchor: TransformNode;
   mesh: Mesh;
   material: StandardMaterial;
+  samples: Vector3[];
+  bits: Mesh[];
 }
 
 export interface MeshCard {
@@ -174,7 +181,11 @@ export class InspectorScene {
   private effectsEnabled = false;
   private fx: RuntimeEffect[] = [];
   private measuring: CinematicFrame[] | null = null;
+  private frameGaps: number[] = [];
+  private lastMeasureAt = 0;
   private readonly cameraOffset = new Vector3();
+  private readonly trailSide = new Vector3();
+  private readonly trailDir = new Vector3();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -208,7 +219,13 @@ export class InspectorScene {
         this.applyTimeline();
         this.applyEffects();
         const state = this.timelineState();
-        if (this.measuring && state) this.measuring.push(this.readFrame(state.clip, state.normalized));
+        if (this.measuring && state) {
+          const now = performance.now();
+          if (this.lastMeasureAt > 0) this.frameGaps.push(now - this.lastMeasureAt);
+          this.lastMeasureAt = now;
+          this.measuring.push(this.readFrame(state.clip, state.normalized));
+        }
+        this.applyHitStop(state);
       } else if (this.follow && this.followNode) {
         if (this.tight) this.aimPreview();
         else this.camera.target.copyFrom(this.followNode.getAbsolutePosition());
@@ -538,8 +555,8 @@ export class InspectorScene {
     this.tight = false;
     this.recenter = true;
     this.effectsEnabled = effects;
-    this.setVisibilityPreset("hide-static", config);
     this.syncEffects(config);
+    attack.speedRatio = 1;
     this.timelineArmed = true;
     this.cameraDrive = "timeline";
     this.setControls(false);
@@ -559,7 +576,7 @@ export class InspectorScene {
       ? "The mouth mesh is using the stand-in crop. It is not an original texture."
       : "The mouth mesh keeps the cloth baseline.";
     const fx = effects
-      ? "Preview slash, flash, and streak are on. They are not an OPPW4 effect."
+      ? "Preview blade trails, bloom, and particles are on. A short slowdown marks the strike. They are not an OPPW4 effect."
       : "Preview effects are off.";
     return `Cinematic camera is driving ${config.attackClip}, then ${config.idleClip}. Orbit debug is off. ${fx} ${blade}`;
   }
@@ -596,15 +613,17 @@ export class InspectorScene {
     if (!config.cinematic || !this.groups.some((group) => group.name === name) || !this.followNode) return null;
     this.preview = config;
     this.effectsEnabled = effects;
-    this.scrub(name, normalized);
+    this.clearAttackEnd();
+    this.leaveTimeline();
     this.framePhase = clip;
     this.forcedFrame = { clip, normalized: clamp01(normalized) };
     this.blendStarted = clip === "idle" ? performance.now() - config.blendSeconds * 1000 : 0;
     this.follow = true;
     this.tight = false;
     this.recenter = true;
-    this.setVisibilityPreset("hide-static", config);
     this.syncEffects(config);
+    if (clip === "attack") this.primeTrails(clamp01(normalized));
+    this.poseClip(name, clamp01(normalized));
     this.timelineArmed = true;
     this.cameraDrive = "timeline";
     this.setControls(false);
@@ -622,6 +641,8 @@ export class InspectorScene {
     if (!config.cinematic || !attack) return Promise.resolve(emptyMeasure("This file has no cinematic clip."));
     const rows: CinematicFrame[] = [];
     this.measuring = rows;
+    this.frameGaps = [];
+    this.lastMeasureAt = 0;
     const started = performance.now();
     const message = this.playCinematic(config, effects);
     if (!message.startsWith("Cinematic")) {
@@ -633,7 +654,7 @@ export class InspectorScene {
       window.setTimeout(() => {
         const frames = this.measuring ?? [];
         this.measuring = null;
-        resolve(summarizeMeasure(frames, (performance.now() - started) / 1000, this.engine.getFps()));
+        resolve(summarizeMeasure(frames, this.frameGaps, (performance.now() - started) / 1000, this.engine.getFps()));
       }, wait);
     });
   }
@@ -1158,21 +1179,44 @@ export class InspectorScene {
   private applyEffects(): void {
     const preview = this.preview;
     const state = this.timelineState();
-    if (!preview?.cinematic || !state || state.clip !== preview.attackClip) {
-      for (const fx of this.fx) fx.mesh.setEnabled(false);
-      return;
-    }
-    const duration = this.clipSeconds(preview.attackClip);
+    const duration = preview ? this.clipSeconds(preview.attackClip) : 0;
+    const onAttack = Boolean(preview?.cinematic && state && state.clip === preview.attackClip);
     for (const fx of this.fx) {
       const span = duration > 0 ? fx.seconds / duration : 0;
-      const u = span > 0 ? (state.normalized - fx.t) / span : -1;
+      const u = onAttack && span > 0 ? (state!.normalized - fx.t) / span : -1;
       const on = u >= 0 && u <= 1;
-      fx.mesh.setEnabled(on);
-      if (!on) continue;
+      if (!on) {
+        fx.mesh.setEnabled(false);
+        for (const bit of fx.bits) bit.setEnabled(false);
+        if (fx.kind === "trail" && !this.forcedFrame) fx.samples.length = 0;
+        continue;
+      }
       const fade = Math.sin(Math.PI * clamp01(u));
-      fx.material.alpha = 0.2 + 0.8 * fade;
-      if (fx.kind === "flash") fx.mesh.scaling.setAll(0.45 + 0.7 * fade);
+      fx.anchor.computeWorldMatrix(true);
+      if (fx.kind === "trail") {
+        this.recordTrail(fx);
+        fx.mesh.setEnabled(fx.samples.length >= 2);
+        fx.material.alpha = 0.42 + 0.38 * fade;
+        continue;
+      }
+      fx.mesh.setEnabled(true);
+      fx.material.alpha = fx.kind === "bloom" ? 0.15 + 0.45 * fade : 0.8 * fade;
+      if (fx.kind === "bloom") fx.mesh.scaling.setAll(0.55 + 0.9 * fade);
+      if (fx.kind === "burst") this.placeBurst(fx, fade);
     }
+  }
+
+  private applyHitStop(state: { clip: string; normalized: number; blend: number } | null): void {
+    const attack = this.groups.find((group) => group.name === this.preview?.attackClip);
+    const stop = this.preview?.cinematic?.hitStop;
+    if (!attack) return;
+    if (!stop || !this.effectsEnabled || this.forcedFrame || !state || state.clip !== attack.name) {
+      if (attack.speedRatio !== 1) attack.speedRatio = 1;
+      return;
+    }
+    const duration = this.clipSeconds(attack.name);
+    const local = (state.normalized - stop.t) * duration;
+    attack.speedRatio = local >= 0 && local <= stop.seconds ? stop.speed : 1;
   }
 
   private syncEffects(config: PreviewConfig): void {
@@ -1191,9 +1235,6 @@ export class InspectorScene {
     anchor.parent = this.scene.getTransformNodeByName(effect.bone) ?? this.followNode;
     anchor.position.set(effect.offset[0], effect.offset[1], effect.offset[2]);
     anchor.rotation.set(effect.rotation[0], effect.rotation[1], effect.rotation[2]);
-    const mesh = this.makeEffectMesh(effect);
-    mesh.parent = anchor;
-    mesh.setEnabled(false);
     const material = new StandardMaterial(`preview-fx-mat-${effect.id}`, this.scene);
     material.emissiveColor = new Color3(effect.color[0], effect.color[1], effect.color[2]);
     material.diffuseColor = Color3.Black();
@@ -1201,44 +1242,193 @@ export class InspectorScene {
     material.disableLighting = true;
     material.backFaceCulling = false;
     material.transparencyMode = 2;
+    material.alphaMode = effect.kind === "trail" ? 2 : 1;
     material.alpha = 1;
+    const mesh =
+      effect.kind === "trail"
+        ? this.blankRibbon(effect.id)
+        : MeshBuilder.CreateSphere(
+            `preview-fx-mesh-${effect.id}`,
+            { diameter: effect.kind === "burst" ? 0.01 : effect.size, segments: 10 },
+            this.scene,
+          );
+    mesh.parent = effect.kind === "trail" ? null : anchor;
     mesh.material = material;
-    return { id: effect.id, kind: effect.kind, t: effect.t, seconds: effect.seconds, mesh, material };
+    mesh.setEnabled(false);
+    const bits =
+      effect.kind === "burst"
+        ? Array.from({ length: 8 }, (_, index) => {
+            const bit = MeshBuilder.CreateSphere(`preview-fx-bit-${effect.id}-${index}`, { diameter: 3.2, segments: 6 }, this.scene);
+            bit.parent = anchor;
+            bit.material = material;
+            bit.setEnabled(false);
+            return bit;
+          })
+        : [];
+    return {
+      id: effect.id,
+      kind: effect.kind,
+      t: effect.t,
+      seconds: effect.seconds,
+      width: effect.size,
+      anchor,
+      mesh,
+      material,
+      samples: [],
+      bits,
+    };
   }
 
-  private makeEffectMesh(effect: PreviewEffect): Mesh {
-    if (effect.kind === "flash") {
-      return MeshBuilder.CreateSphere(`preview-fx-mesh-${effect.id}`, { diameter: effect.size, segments: 10 }, this.scene);
-    }
-    if (effect.kind === "streak") {
-      return MeshBuilder.CreateBox(
-        `preview-fx-mesh-${effect.id}`,
-        { width: effect.size, height: effect.size * 0.06, depth: effect.size * 0.1 },
-        this.scene,
-      );
-    }
-    const path: Vector3[] = [];
-    const count = 12;
-    const span = 1.5;
-    for (let i = 0; i < count; i += 1) {
-      const angle = -span / 2 + (span * i) / (count - 1);
-      path.push(new Vector3(Math.sin(angle) * effect.size, Math.cos(angle) * effect.size * 0.55, 0));
-    }
-    return MeshBuilder.CreateTube(
-      `preview-fx-mesh-${effect.id}`,
-      { path, radius: Math.max(1.5, effect.size * 0.035), tessellation: 8 },
+  private blankRibbon(id: string): Mesh {
+    const a = new Vector3(0, 0, 0);
+    const b = new Vector3(0.01, 0, 0);
+    return MeshBuilder.CreateRibbon(
+      `preview-fx-mesh-${id}`,
+      { pathArray: [[a, b], [a.clone(), b.clone()]], sideOrientation: Mesh.DOUBLESIDE, updatable: true },
       this.scene,
     );
   }
 
+  private recordTrail(fx: RuntimeEffect): void {
+    const pos = fx.anchor.getAbsolutePosition().clone();
+    const last = fx.samples[fx.samples.length - 1];
+    if (!last || Vector3.DistanceSquared(last, pos) > 0.16) fx.samples.push(pos);
+    if (fx.samples.length > 10) fx.samples.shift();
+    if (fx.samples.length >= 2) this.redrawTrail(fx);
+  }
+
+  private redrawTrail(fx: RuntimeEffect): void {
+    const left: Vector3[] = [];
+    const right: Vector3[] = [];
+    const count = fx.samples.length;
+    for (let i = 0; i < count; i += 1) {
+      const prev = fx.samples[Math.max(0, i - 1)];
+      const next = fx.samples[Math.min(count - 1, i + 1)];
+      next.subtractToRef(prev, this.trailDir);
+      if (this.trailDir.lengthSquared() < 1e-4) this.trailDir.set(0, 0, 1);
+      this.trailDir.normalize();
+      this.camera.position.subtractToRef(fx.samples[i], this.trailSide);
+      Vector3.CrossToRef(this.trailDir, this.trailSide, this.trailSide);
+      if (this.trailSide.lengthSquared() < 1e-4) Vector3.CrossToRef(this.trailDir, Vector3.Up(), this.trailSide);
+      const taper = 0.35 + (0.65 * i) / Math.max(1, count - 1);
+      this.trailSide.normalize().scaleInPlace(fx.width * taper);
+      left.push(fx.samples[i].add(this.trailSide));
+      right.push(fx.samples[i].subtract(this.trailSide));
+    }
+    fx.mesh.dispose(false, false);
+    fx.mesh = MeshBuilder.CreateRibbon(
+      `preview-fx-mesh-${fx.id}`,
+      { pathArray: [left, right], sideOrientation: Mesh.DOUBLESIDE, updatable: true },
+      this.scene,
+    );
+    fx.mesh.material = fx.material;
+    fx.mesh.setEnabled(true);
+  }
+
+  private placeBurst(fx: RuntimeEffect, fade: number): void {
+    fx.mesh.setEnabled(false);
+    fx.bits.forEach((bit, index) => {
+      const angle = (index / fx.bits.length) * Math.PI * 2;
+      const distance = fx.width * (0.25 + fade);
+      bit.position.set(Math.cos(angle) * distance, Math.sin(angle) * distance * 0.6, Math.sin(angle * 2) * distance * 0.35);
+      bit.scaling.setAll(0.35 + 0.5 * (1 - fade));
+      bit.setEnabled(true);
+    });
+  }
+
+  private primeTrails(normalized: number): void {
+    const duration = this.clipSeconds(this.preview?.attackClip ?? "");
+    for (const fx of this.fx) {
+      if (fx.kind !== "trail") continue;
+      const span = duration > 0 ? fx.seconds / duration : 0;
+      const start = fx.t;
+      const end = fx.t + span;
+      if (normalized < start || normalized > end) continue;
+      const lookback = duration > 0 ? 0.45 / duration : 0.05;
+      const from = Math.max(start, normalized - lookback);
+      fx.samples = [];
+      const steps = 12;
+      for (let i = 0; i <= steps; i += 1) {
+        this.poseClip(this.preview?.attackClip ?? "", from + ((normalized - from) * i) / steps);
+        fx.anchor.computeWorldMatrix(true);
+        fx.samples.push(fx.anchor.getAbsolutePosition().clone());
+      }
+    }
+  }
+
+  private poseClip(name: string, normalized: number): void {
+    const group = this.groups.find((item) => item.name === name);
+    if (!group) return;
+    this.hold(group);
+    group.goToFrame(group.from + clamp01(normalized) * (group.to - group.from));
+    this.followNode?.computeWorldMatrix(true);
+    this.applyRecenter();
+    this.followNode?.computeWorldMatrix(true);
+  }
+
+  /**
+   * Plays a generated moving box through the same effect path.
+   * The box is not a character. It checks that bone names come from the caller.
+   */
+  smokeFixture(): { ok: boolean; moved: number; detail: string } {
+    const bone = new TransformNode("fixture-bone", this.scene);
+    bone.parent = this.previewRoot;
+    bone.position.set(0, 1, 0);
+    const motion = new Animation("fixture-move", "position.x", 60, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CYCLE);
+    motion.setKeys([
+      { frame: 0, value: 0 },
+      { frame: 20, value: 3 },
+    ]);
+    const group = new AnimationGroup("fixture-clip", this.scene);
+    group.addTargetedAnimation(motion, bone);
+    const anchor = new TransformNode("preview-fx-fixture-anchor", this.scene);
+    anchor.parent = bone;
+    const fx: RuntimeEffect = {
+      id: "fixture-trail",
+      kind: "trail",
+      t: 0,
+      seconds: 1,
+      width: 0.2,
+      anchor,
+      mesh: this.blankRibbon("fixture-trail"),
+      material: new StandardMaterial("preview-fx-mat-fixture-trail", this.scene),
+      samples: [],
+      bits: [],
+    };
+    fx.mesh.material = fx.material;
+    group.play(false);
+    group.goToFrame(0);
+    bone.computeWorldMatrix(true);
+    this.recordTrail(fx);
+    group.goToFrame(20);
+    bone.computeWorldMatrix(true);
+    anchor.computeWorldMatrix(true);
+    this.recordTrail(fx);
+    const moved = fx.samples.length >= 2 ? Vector3.Distance(fx.samples[0], fx.samples[fx.samples.length - 1]) : 0;
+    group.stop();
+    group.dispose();
+    fx.mesh.dispose(false, true);
+    anchor.dispose();
+    bone.dispose();
+    return {
+      ok: moved > 1,
+      moved: round(moved),
+      detail: "A generated box and clip drove a trail. No character name was used.",
+    };
+  }
+
   private clearEffects(): void {
     for (const fx of this.fx) {
-      fx.mesh.parent = null;
-      fx.mesh.dispose(false, true);
+      fx.mesh.dispose(false, false);
+      for (const bit of fx.bits) bit.dispose(false, false);
+      fx.material.dispose();
     }
     this.fx = [];
     for (const node of [...this.scene.transformNodes]) {
       if (node.name.startsWith("preview-fx-")) node.dispose();
+    }
+    for (const mesh of [...this.scene.meshes]) {
+      if (mesh.name.startsWith("preview-fx-")) mesh.dispose(false, false);
     }
   }
 
@@ -1265,7 +1455,7 @@ export class InspectorScene {
       target: [round(this.camera.target.x), round(this.camera.target.y), round(this.camera.target.z)],
       rootLocalZ: round(root?.position.z ?? 0),
       rootWorldZ: round(world?.z ?? 0),
-      effects: this.fx.filter((fx) => fx.mesh.isEnabled()).map((fx) => fx.id),
+      effects: this.fx.filter((fx) => fx.mesh.isEnabled() || fx.bits.some((bit) => bit.isEnabled())).map((fx) => fx.id),
       swords: (this.preview?.swordGroups ?? []).map((group) => ({
         id: group.id,
         visible: group.indices.filter((index) => this.meshByIndex(index)?.isEnabled()).length,
@@ -1287,6 +1477,13 @@ function clamp01(value: number): number {
 
 function round(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function percentile(values: number[], p: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1);
+  return sorted[Math.max(0, index)];
 }
 
 function smoothstep(value: number): number {
@@ -1316,6 +1513,8 @@ function emptyMeasure(error: string): CinematicMeasure {
     maxBetaStep: 0,
     maxRadiusStep: 0,
     maxTargetStep: 0,
+    minFps: 0,
+    p95FrameMs: 0,
     rootWorldZ: [0, 0],
     rootLocalZ: { attackStart: 0, attackEnd: 0, idleStart: 0 },
     effectWindows: [],
@@ -1324,7 +1523,7 @@ function emptyMeasure(error: string): CinematicMeasure {
   };
 }
 
-function summarizeMeasure(frames: CinematicFrame[], seconds: number, engineFps: number): CinematicMeasure {
+function summarizeMeasure(frames: CinematicFrame[], gaps: number[], seconds: number, engineFps: number): CinematicMeasure {
   if (frames.length === 0) return emptyMeasure("No cinematic frames were recorded.");
   let maxAlpha = 0;
   let maxBeta = 0;
@@ -1380,6 +1579,8 @@ function summarizeMeasure(frames: CinematicFrame[], seconds: number, engineFps: 
     maxBetaStep: round(maxBeta),
     maxRadiusStep: round(maxRadius),
     maxTargetStep: round(maxTarget),
+    minFps: gaps.length ? round(1000 / Math.max(...gaps)) : 0,
+    p95FrameMs: round(percentile(gaps, 0.95)),
     rootWorldZ: [round(worldMin), round(worldMax)],
     rootLocalZ: {
       attackStart: attack[0]?.rootLocalZ ?? 0,

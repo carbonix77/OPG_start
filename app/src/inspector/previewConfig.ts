@@ -42,12 +42,12 @@ export interface PreviewEffect {
   t: number;
   /** How long it stays up, in seconds. */
   seconds: number;
-  kind: "arc" | "flash" | "streak";
+  kind: "trail" | "bloom" | "burst";
   /** Bone the effect follows. The scene falls back to the follow node. */
   bone: string;
   offset: [number, number, number];
   rotation: [number, number, number];
-  /** Arc radius, flash diameter, or streak length. */
+  /** Trail half-width, bloom diameter, or burst travel. */
   size: number;
   color: [number, number, number];
 }
@@ -57,6 +57,11 @@ export interface CinematicTimeline {
   /** Camera eased in after the attack, over blendSeconds. */
   idleHold: CameraKey;
   effects: PreviewEffect[];
+  /**
+   * Short preview slowdown. Null skips it.
+   * Speed is a fraction of the clip rate. The keys are not edited.
+   */
+  hitStop: { t: number; seconds: number; speed: number } | null;
   /** Normalized attack times for a contact sheet. Playback does not read this. */
   contactTimes: number[];
 }
@@ -254,39 +259,51 @@ export const ZORO_PREVIEW: PreviewConfig = {
     idleHold: { t: 0, alpha: Math.PI / 2, beta: 1.2, radius: 460, targetOffset: [0, 22, 0] },
     effects: [
       {
-        id: "release-streak",
-        t: 0.05,
-        seconds: 0.35,
-        kind: "streak",
-        bone: "SK_Head",
-        offset: [12, 0, 8],
-        rotation: [0, 0.6, 0.8],
-        size: 42,
-        color: [0.82, 0.9, 1],
-      },
-      {
-        id: "slash-arc",
-        t: 0.14,
-        seconds: 1.7,
-        kind: "arc",
-        bone: "SK_Skeleton",
-        offset: [0, 24, 18],
-        rotation: [Math.PI / 2, 0.3, 0.9],
-        size: 86,
-        color: [0.72, 0.86, 1],
-      },
-      {
-        id: "strike-flash",
-        t: 0.33,
-        seconds: 0.22,
-        kind: "flash",
+        id: "mouth-trail",
+        t: 0,
+        seconds: 2.6,
+        kind: "trail",
         bone: "0x43b3b303",
-        offset: [28, 2, 0],
+        offset: [22, 0, 0],
         rotation: [0, 0, 0],
-        size: 12,
-        color: [1, 0.93, 0.78],
+        size: 4.5,
+        color: [0.78, 0.9, 1],
+      },
+      {
+        id: "hand-trail",
+        t: 0.02,
+        seconds: 2.2,
+        kind: "trail",
+        bone: "SK_R_Weapon",
+        offset: [0, 22, 0],
+        rotation: [0, 0, 0],
+        size: 3.2,
+        color: [0.9, 0.94, 1],
+      },
+      {
+        id: "strike-bloom",
+        t: 0.33,
+        seconds: 0.16,
+        kind: "bloom",
+        bone: "0x43b3b303",
+        offset: [22, 0, 0],
+        rotation: [0, 0, 0],
+        size: 16,
+        color: [1, 0.95, 0.82],
+      },
+      {
+        id: "strike-burst",
+        t: 0.33,
+        seconds: 0.26,
+        kind: "burst",
+        bone: "0x43b3b303",
+        offset: [22, 0, 0],
+        rotation: [0, 0, 0],
+        size: 16,
+        color: [1, 0.96, 0.88],
       },
     ],
+    hitStop: { t: 0.34, seconds: 0.1, speed: 0.45 },
     contactTimes: [0, 0.08, 0.12, 0.22, 0.35, 0.55, 0.75, 0.92, 1],
   },
 };

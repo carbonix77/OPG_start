@@ -307,24 +307,24 @@ export function App() {
             type="button"
             onClick={() => {
               setFollow(true);
-              setPreset("hide-static");
+              setPreset("all");
               setTextures(true);
               setWideFrame(true);
               setRecenter(true);
               setStage(true);
               setOrbitDebug(false);
-              const useCrop = mouthPreview;
-              const useFx = previewEffects;
+              setPreviewEffects(true);
+              setMouthPreview(true);
+              setSheet("");
               sceneRef.current?.setRecenter(true);
               sceneRef.current?.setStage(true, preview);
+              sceneRef.current?.setVisibilityPreset("all", preview);
               void (async () => {
                 const notes = await sceneRef.current?.setTemporaryTextures(true, preview);
                 if (sceneRef.current && notes) setTextureNotes(notes);
-                if (useCrop) {
-                  setSheet("");
-                  setSheetNote(sceneRef.current?.setMouthPreview(true, preview) ?? "");
-                }
-                setPreviewNote(sceneRef.current?.playCinematic(preview, useFx) ?? "");
+                setSheetNote(sceneRef.current?.setMouthPreview(true, preview) ?? "");
+                sceneRef.current?.setPreviewEffects(true, preview);
+                setPreviewNote(sceneRef.current?.playCinematic(preview, true) ?? "");
               })();
             }}
           >
@@ -341,7 +341,7 @@ export function App() {
               sceneRef.current?.setPreviewEffects(enabled, preview);
             }}
           />
-          Preview effects. Slash, flash, and streak are stand-ins, not an OPPW4 effect.
+          Preview effects. Blade trails, bloom, and particles are stand-ins, not an OPPW4 effect.
         </label>
         <label className="check">
           <input
