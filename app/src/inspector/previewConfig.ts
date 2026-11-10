@@ -514,8 +514,8 @@ export const SANJI_PREVIEW: PreviewConfig = {
     29,
   ],
   sheetByMesh: {},
-  // Noesis merge also emits tiny driver_* helper meshes; keep them out of the draw list.
-  excludedMeshIndices: [],
+  // Owner hide list: stray shells / wrong-sheet clutter (reversible). driver_* still auto-hidden.
+  excludedMeshIndices: [0, 5, 6, 7, 10, 12, 24],
   behaviors: [
     { id: "idle", clip: "Sanji_0000", label: "Sanji_0000 combat idle candidate", confidence: "candidate" },
     { id: "basic", clip: "Sanji_0500", label: "Sanji_0500 basic attack candidate", confidence: "candidate" },
@@ -543,7 +543,8 @@ export const NAMI_PREVIEW: PreviewConfig = {
   blendSeconds: 0.28,
   materialSlotByMesh: Array.from({ length: 24 }, (_, index) => index),
   sheetByMesh: {},
-  excludedMeshIndices: [],
+  // Owner hide list: accessory / wrong-sheet shells (reversible).
+  excludedMeshIndices: [4, 5, 6, 7, 8, 9, 10, 11, 12, 17, 18, 20, 23],
   behaviors: [
     { id: "idle", clip: "Nami_0000", label: "Nami_0000 idle candidate", confidence: "candidate" },
     { id: "basic", clip: "Nami_NewWorld_0500", label: "Nami_NewWorld_0500 basic candidate", confidence: "candidate" },
@@ -567,7 +568,8 @@ export const USOPP_PREVIEW: PreviewConfig = {
   blendSeconds: 0.28,
   materialSlotByMesh: Array.from({ length: 37 }, (_, index) => index),
   sheetByMesh: {},
-  excludedMeshIndices: [],
+  // Owner hide list: accessory / wrong-sheet shells (reversible). driver_* still auto-hidden.
+  excludedMeshIndices: [0, 4, 9, 10, 11, 12, 13, 14, 16, 17, 19, 20, 21, 24, 31, 33, 35],
   behaviors: [
     { id: "idle", clip: "Usopp_0000", label: "Usopp_0000 idle candidate", confidence: "candidate" },
     { id: "basic", clip: "Usopp_0500", label: "Usopp_0500 basic candidate", confidence: "candidate" },

@@ -215,6 +215,9 @@ describe("BattleEngine", () => {
     expect(sanji?.idleClip).toBe("Sanji_0000");
     expect(nami?.idleClip).toBe("Nami_0000");
     expect(usopp?.idleClip).toBe("Usopp_0000");
+    expect(sanji?.excludedMeshIndices).toEqual([0, 5, 6, 7, 10, 12, 24]);
+    expect(nami?.excludedMeshIndices).toEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 17, 18, 20, 23]);
+    expect(usopp?.excludedMeshIndices).toEqual([0, 4, 9, 10, 11, 12, 13, 14, 16, 17, 19, 20, 21, 24, 31, 33, 35]);
   });
 
   it("runs Zoro+Sanji vs Nami+Usopp with independent clips", () => {
