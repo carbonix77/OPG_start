@@ -108,6 +108,10 @@ export interface PreviewConfig {
   /** GLB material slot for mesh index N. Null keeps Material_N names only. */
   materialSlotByMesh: number[] | null;
   staticMeshIndices: number[];
+  /**
+   * Mesh indices that do not belong on this model. They stay in the file and are not drawn.
+   */
+  excludedMeshIndices: number[];
   stacks: SwordStack[];
   /** Bone groups measured for the three-sword proposal. The page does not hide them. */
   swordGroups: SwordGroup[];
@@ -165,6 +169,7 @@ export const ZORO_PREVIEW: PreviewConfig = {
     28, 29, 30, 31, 32, 33, 34, 35, 36,
   ],
   staticMeshIndices: [3, 22, 23, 24],
+  excludedMeshIndices: [2],
   stacks: [
     { indices: [17, 27], coincideDistance: 1 },
     { indices: [30, 33, 39], coincideDistance: 1 },
@@ -335,6 +340,7 @@ export const FIXTURE_PREVIEW: PreviewConfig = {
   sheetCandidates: [],
   materialSlotByMesh: null,
   staticMeshIndices: [],
+  excludedMeshIndices: [],
   stacks: [],
   swordGroups: [],
   mouthBlade: null,

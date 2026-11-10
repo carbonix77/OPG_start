@@ -277,6 +277,7 @@ export class InspectorScene {
       }
       this.followNode = this.findFollowNode();
       this.attachPreviewRoot(result.transformNodes, result.meshes);
+      this.hideExcludedMeshes();
       this.frameCamera();
       return this.facts("");
     } catch (error) {
@@ -758,7 +759,9 @@ export class InspectorScene {
 
   setMeshEnabled(name: string, enabled: boolean): void {
     const mesh = this.scene.getMeshByName(name);
-    if (mesh) mesh.setEnabled(enabled);
+    if (!mesh) return;
+    if (enabled && mesh instanceof Mesh && this.isExcluded(mesh)) return;
+    mesh.setEnabled(enabled);
   }
 
   /** null shows every loaded mesh again. A list shows only those meshes. */
@@ -910,10 +913,26 @@ export class InspectorScene {
     return this.bodyMeshes().find((mesh) => meshIndexOf(mesh.name) === index) ?? null;
   }
 
+  private isExcluded(mesh: Mesh): boolean {
+    const index = meshIndexOf(mesh.name);
+    return index !== null && (this.preview?.excludedMeshIndices ?? []).includes(index);
+  }
+
+  /** Turns off meshes the current config says are not part of this model. */
+  private hideExcludedMeshes(): void {
+    for (const mesh of this.scene.meshes) {
+      if (mesh instanceof Mesh && this.isExcluded(mesh)) mesh.setEnabled(false);
+    }
+  }
+
   private bodyMeshes(): Mesh[] {
     return this.scene.meshes.filter(
       (mesh): mesh is Mesh =>
-        mesh instanceof Mesh && mesh.name !== "ground" && !mesh.name.startsWith("preview-fx-") && mesh.getTotalVertices() > 0,
+        mesh instanceof Mesh &&
+        mesh.name !== "ground" &&
+        !mesh.name.startsWith("preview-fx-") &&
+        mesh.getTotalVertices() > 0 &&
+        !this.isExcluded(mesh),
     );
   }
 
