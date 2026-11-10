@@ -23,6 +23,7 @@ function cloneState(state: BattleState): BattleState {
     pending: state.pending ? { ...state.pending } : null,
     winner: state.winner,
     log: [...state.log],
+    actionSeq: state.actionSeq,
   };
 }
 
@@ -60,17 +61,51 @@ function initiativeOrder(seed: number, units: UnitState[]): string[] {
     .map((row) => row.id);
 }
 
+function validateSkillTiming(manifest: CharacterManifest): void {
+  for (const skill of manifest.skills) {
+    const ordered =
+      skill.startup >= 0 &&
+      skill.contact >= skill.startup &&
+      skill.recovery >= skill.contact &&
+      skill.recovery <= 1;
+    if (!ordered) {
+      throw new Error(`Skill ${manifest.id}/${skill.id} has invalid timing markers.`);
+    }
+  }
+}
+
+function validateSpawns(spawns: UnitSpawn[]): CharacterManifest[] {
+  if (spawns.length === 0) throw new Error("Battle needs at least one unit");
+  const ids = new Set<string>();
+  let alpha = 0;
+  let bravo = 0;
+  const manifests: CharacterManifest[] = [];
+  for (const spawn of spawns) {
+    if (!spawn.id) throw new Error("Unit id is required.");
+    if (ids.has(spawn.id)) throw new Error(`Duplicate unit id ${spawn.id}`);
+    ids.add(spawn.id);
+    const manifest = manifestOf(spawn.manifestId);
+    if (!manifest) throw new Error(`Unknown manifest ${spawn.manifestId}`);
+    validateSkillTiming(manifest);
+    const maxHp = spawn.maxHp ?? manifest.maxHp;
+    const speed = spawn.speed ?? manifest.speed;
+    if (!(maxHp > 0)) throw new Error(`Unit ${spawn.id} needs positive HP.`);
+    if (!(speed > 0)) throw new Error(`Unit ${spawn.id} needs positive speed.`);
+    if (spawn.team === "alpha") alpha += 1;
+    else if (spawn.team === "bravo") bravo += 1;
+    else throw new Error(`Unit ${spawn.id} has an unknown team.`);
+    manifests.push(manifest);
+  }
+  if (alpha === 0 || bravo === 0) throw new Error("Both teams must have at least one unit.");
+  return manifests;
+}
+
 export class BattleEngine {
   private state: BattleState;
 
   constructor(seed: number, spawns: UnitSpawn[]) {
-    const units: UnitState[] = [];
-    for (const spawn of spawns) {
-      const manifest = manifestOf(spawn.manifestId);
-      if (!manifest) throw new Error(`Unknown manifest ${spawn.manifestId}`);
-      units.push(buildUnit(spawn, manifest));
-    }
-    if (units.length === 0) throw new Error("Battle needs at least one unit");
+    const manifests = validateSpawns(spawns);
+    const units = spawns.map((spawn, index) => buildUnit(spawn, manifests[index]));
     const order = initiativeOrder(seed, units);
     this.state = {
       seed,
@@ -81,6 +116,7 @@ export class BattleEngine {
       pending: null,
       winner: null,
       log: [{ type: "battle-started", seed, order: [...order] }],
+      actionSeq: 0,
     };
     this.pushTurn();
   }
@@ -92,6 +128,10 @@ export class BattleEngine {
   currentActorId(): string | null {
     if (this.state.phase === "ended") return null;
     return this.state.order[this.state.turnIndex % this.state.order.length] ?? null;
+  }
+
+  currentActionId(): number | null {
+    return this.state.pending?.id ?? null;
   }
 
   reset(seed = this.state.seed): BattleState {
@@ -132,17 +172,24 @@ export class BattleEngine {
       this.state.log.push(blocked);
       return [blocked];
     }
+    this.state.actionSeq += 1;
+    const actionId = this.state.actionSeq;
     this.state.phase = "acting";
-    this.state.pending = { actorId, skillId, targetId, contactApplied: false };
-    const started: BattleEvent = { type: "action-started", actorId, skillId, targetId };
+    this.state.pending = { id: actionId, actorId, skillId, targetId, contactApplied: false };
+    const started: BattleEvent = { type: "action-started", actionId, actorId, skillId, targetId };
     this.state.log.push(started);
     return [started];
   }
 
-  applyContact(): BattleEvent[] {
+  applyContact(actionId?: number): BattleEvent[] {
     const pending = this.state.pending;
     if (!pending || this.state.phase !== "acting") {
       const blocked: BattleEvent = { type: "blocked", reason: "No active action for contact." };
+      this.state.log.push(blocked);
+      return [blocked];
+    }
+    if (actionId !== undefined && pending.id !== actionId) {
+      const blocked: BattleEvent = { type: "blocked", reason: "Stale action contact ignored." };
       this.state.log.push(blocked);
       return [blocked];
     }
@@ -160,12 +207,18 @@ export class BattleEngine {
       this.state.log.push(blocked);
       return [blocked];
     }
+    if (!target.alive) {
+      const blocked: BattleEvent = { type: "blocked", reason: "Target is already defeated." };
+      this.state.log.push(blocked);
+      return [blocked];
+    }
     pending.contactApplied = true;
     const damage = Math.max(0, skill.damage);
     target.hp = Math.max(0, target.hp - damage);
     const events: BattleEvent[] = [
       {
         type: "contact",
+        actionId: pending.id,
         actorId: pending.actorId,
         skillId: pending.skillId,
         targetId: pending.targetId,
@@ -181,16 +234,33 @@ export class BattleEngine {
     return events;
   }
 
-  finishAction(): BattleEvent[] {
+  /**
+   * Completes an action that already applied contact, or was intentionally resolved headless.
+   * Does not invent contact. Interrupted presentation must call abortAction instead.
+   */
+  finishAction(actionId?: number): BattleEvent[] {
     const pending = this.state.pending;
     if (!pending || this.state.phase !== "acting") {
       const blocked: BattleEvent = { type: "blocked", reason: "No active action to finish." };
       this.state.log.push(blocked);
       return [blocked];
     }
-    if (!pending.contactApplied) this.applyContact();
+    if (actionId !== undefined && pending.id !== actionId) {
+      const blocked: BattleEvent = { type: "blocked", reason: "Stale action finish ignored." };
+      this.state.log.push(blocked);
+      return [blocked];
+    }
+    if (!pending.contactApplied) {
+      const blocked: BattleEvent = {
+        type: "blocked",
+        reason: "Contact was not applied. Abort the action or resolveFully in headless mode.",
+      };
+      this.state.log.push(blocked);
+      return [blocked];
+    }
     const finished: BattleEvent = {
       type: "action-finished",
+      actionId: pending.id,
       actorId: pending.actorId,
       skillId: pending.skillId,
     };
@@ -213,12 +283,39 @@ export class BattleEngine {
     return events;
   }
 
-  /** Headless full resolve for tests and synthetic units. */
+  /** Cancels the active action without damage. Keeps the same actor's turn. */
+  abortAction(reason: string, actionId?: number): BattleEvent[] {
+    const pending = this.state.pending;
+    if (!pending || this.state.phase !== "acting") {
+      const blocked: BattleEvent = { type: "blocked", reason: "No active action to abort." };
+      this.state.log.push(blocked);
+      return [blocked];
+    }
+    if (actionId !== undefined && pending.id !== actionId) {
+      const blocked: BattleEvent = { type: "blocked", reason: "Stale action abort ignored." };
+      this.state.log.push(blocked);
+      return [blocked];
+    }
+    const aborted: BattleEvent = {
+      type: "action-aborted",
+      actionId: pending.id,
+      actorId: pending.actorId,
+      skillId: pending.skillId,
+      reason,
+    };
+    this.state.log.push(aborted);
+    this.state.pending = null;
+    this.state.phase = this.state.winner ? "ended" : "idle";
+    return [aborted];
+  }
+
+  /** Headless full resolve for tests and synthetic units. Explicitly applies contact. */
   resolveFully(actorId: string, skillId: string, targetId: string): BattleEvent[] {
     const started = this.beginAction(actorId, skillId, targetId);
     if (started.some((event) => event.type === "blocked")) return started;
-    const contact = this.applyContact();
-    const finished = this.finishAction();
+    const actionId = this.state.pending?.id;
+    const contact = this.applyContact(actionId);
+    const finished = this.finishAction(actionId);
     return [...started, ...contact.filter((event) => event.type !== "blocked"), ...finished];
   }
 

@@ -61,6 +61,12 @@ export const LOCAL_ASSETS: LocalAsset[] = [
     relativePath: "private-assets/validation/merge-next/merged.gltf",
     note: "Unnamed Zoro_0050, 0071, 0604, and 1650. Not verified idle or hit.",
   },
+  {
+    id: "noesis-sanji",
+    label: "Noesis glTF Sanji specials",
+    relativePath: "private-assets/validation/merge-sanji/merged.gltf",
+    note: "Sanji_1290, 1300, 1310, and 1330 only. No local idle or basic G1A was available. Provisional stand-ins only. Not retargeted.",
+  },
 ];
 
 export function assetUrl(relativePath: string): { rootUrl: string; fileName: string } {

@@ -108,10 +108,46 @@ export const FIXTURE_MANIFEST: CharacterManifest = {
   ],
 };
 
+/**
+ * Local Sanji specials only. Idle and basic G1As were not in the project copy.
+ * Sanji_1290 stands in as a provisional idle. Sanji_1300 stands in as a provisional basic.
+ */
+export const SANJI_MANIFEST: CharacterManifest = {
+  id: "sanji-specials",
+  label: "Sanji specials",
+  maxHp: 95,
+  speed: 13,
+  assetId: "noesis-sanji",
+  idleClip: "Sanji_1290",
+  skills: [
+    {
+      id: "basic",
+      label: "Provisional special-as-basic (Sanji_1300)",
+      damage: 16,
+      startup: 0.12,
+      contact: 0.35,
+      recovery: 0.9,
+      clipId: "Sanji_1300",
+      confidence: "provisional",
+    },
+    {
+      id: "special",
+      label: "Sanji_1330 special candidate",
+      damage: 32,
+      startup: 0.1,
+      contact: 0.4,
+      recovery: 0.9,
+      clipId: "Sanji_1330",
+      confidence: "candidate",
+    },
+  ],
+};
+
 export const MANIFEST_BY_ID: Record<string, CharacterManifest> = {
   [ZORO_MANIFEST.id]: ZORO_MANIFEST,
   [DUMMY_MANIFEST.id]: DUMMY_MANIFEST,
   [FIXTURE_MANIFEST.id]: FIXTURE_MANIFEST,
+  [SANJI_MANIFEST.id]: SANJI_MANIFEST,
 };
 
 export function manifestOf(id: string): CharacterManifest | null {

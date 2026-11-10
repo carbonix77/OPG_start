@@ -26,7 +26,7 @@ Hand stacks `17` with `27`, and `30` with `33` and `39`, stay overlapped through
 
 ## Battle preview
 
-Choose Mode → Battle preview. The page loads the roster file, places a synthetic dummy box, and enables temporary textures. Basic Attack plays `Zoro_0500`, applies damage once at the skill contact marker, returns to `Zoro_0000`, then resolves the dummy poke. Experimental skills stay available on the same path. Reset restores HP and idle. This is a vertical slice, not a finished 5v5.
+Choose Mode → Battle preview. The page loads the roster file onto a generated four-slot arena with a labeled interim ally and two interim enemies. Target select picks a living enemy. Basic Attack plays `Zoro_0500`, applies damage once at the skill contact marker, returns to `Zoro_0000`, then auto-resolves non-Zoro turns. Reset is disabled while an action is busy. Sanji specials are a separate model entry; local Sanji idle/basic G1As were missing.
 
 ## Review frames
 

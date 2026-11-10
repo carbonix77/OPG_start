@@ -40,6 +40,7 @@ export interface UnitState {
 }
 
 export interface PendingAction {
+  id: number;
   actorId: string;
   skillId: string;
   targetId: string;
@@ -55,14 +56,17 @@ export interface BattleState {
   pending: PendingAction | null;
   winner: TeamId | null;
   log: BattleEvent[];
+  /** Monotonic action id. Presentation stale checks compare against this. */
+  actionSeq: number;
 }
 
 export type BattleEvent =
   | { type: "battle-started"; seed: number; order: string[] }
   | { type: "turn"; turnIndex: number; actorId: string }
-  | { type: "action-started"; actorId: string; skillId: string; targetId: string }
-  | { type: "contact"; actorId: string; skillId: string; targetId: string; damage: number; targetHp: number }
-  | { type: "action-finished"; actorId: string; skillId: string }
+  | { type: "action-started"; actionId: number; actorId: string; skillId: string; targetId: string }
+  | { type: "contact"; actionId: number; actorId: string; skillId: string; targetId: string; damage: number; targetHp: number }
+  | { type: "action-finished"; actionId: number; actorId: string; skillId: string }
+  | { type: "action-aborted"; actionId: number; actorId: string; skillId: string; reason: string }
   | { type: "blocked"; reason: string }
   | { type: "unit-defeated"; unitId: string }
   | { type: "battle-ended"; winner: TeamId };

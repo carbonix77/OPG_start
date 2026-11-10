@@ -1,18 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BattleEngine,
   DUMMY_MANIFEST,
   ZORO_MANIFEST,
+  manifestOf,
   skillOf,
   type BattleEvent,
   type BattleState,
 } from "../combat";
 import type { InspectorScene } from "../inspector/InspectorScene";
 import { previewForAsset } from "../inspector/previewConfig";
+import { BattleArena, TWO_V_TWO_SLOTS } from "./arena";
+import { UnitViewRegistry, type UnitViewSpec } from "./unitRegistry";
 
+const SEED = 21;
 const ZORO_ID = "zoro";
-const DUMMY_ID = "dummy";
-const SEED = 11;
+const ALLY_ID = "ally";
+const ENEMY_A = "enemy-a";
+const ENEMY_B = "enemy-b";
 
 function formatEvent(event: BattleEvent): string {
   switch (event.type) {
@@ -21,11 +26,13 @@ function formatEvent(event: BattleEvent): string {
     case "turn":
       return `Turn ${event.turnIndex}: ${event.actorId}`;
     case "action-started":
-      return `${event.actorId} starts ${event.skillId} → ${event.targetId}`;
+      return `#${event.actionId} ${event.actorId} starts ${event.skillId} → ${event.targetId}`;
     case "contact":
-      return `Contact ${event.damage} dmg. ${event.targetId} HP ${event.targetHp}`;
+      return `#${event.actionId} contact ${event.damage} dmg. ${event.targetId} HP ${event.targetHp}`;
     case "action-finished":
-      return `${event.actorId} finished ${event.skillId}`;
+      return `#${event.actionId} ${event.actorId} finished ${event.skillId}`;
+    case "action-aborted":
+      return `#${event.actionId} aborted: ${event.reason}`;
     case "blocked":
       return `Blocked: ${event.reason}`;
     case "unit-defeated":
@@ -35,137 +42,245 @@ function formatEvent(event: BattleEvent): string {
   }
 }
 
+function makeEngine() {
+  return new BattleEngine(SEED, [
+    { id: ZORO_ID, manifestId: ZORO_MANIFEST.id, team: "alpha", speed: 20, label: "Zoro" },
+    {
+      id: ALLY_ID,
+      manifestId: DUMMY_MANIFEST.id,
+      team: "alpha",
+      speed: 11,
+      maxHp: 70,
+      label: "ALLY interim (Sanji slot)",
+    },
+    { id: ENEMY_A, manifestId: DUMMY_MANIFEST.id, team: "bravo", speed: 9, maxHp: 55, label: "ENEMY-A interim" },
+    { id: ENEMY_B, manifestId: DUMMY_MANIFEST.id, team: "bravo", speed: 8, maxHp: 55, label: "ENEMY-B interim" },
+  ]);
+}
+
 export function BattlePanel(props: {
   scene: InspectorScene | null;
   ready: boolean;
   onStatus: (text: string) => void;
 }) {
-  const engine = useMemo(
-    () =>
-      new BattleEngine(SEED, [
-        { id: ZORO_ID, manifestId: ZORO_MANIFEST.id, team: "alpha", speed: 20 },
-        { id: DUMMY_ID, manifestId: DUMMY_MANIFEST.id, team: "bravo", speed: 1 },
-      ]),
-    [],
-  );
+  const engine = useMemo(() => makeEngine(), []);
   const [state, setState] = useState<BattleState>(() => engine.getState());
   const [busy, setBusy] = useState(false);
-  const [skillId, setSkillId] = useState("basic");
+  const [targetId, setTargetId] = useState(ENEMY_A);
   const [log, setLog] = useState<string[]>([]);
+  const liveAction = useRef<{ engineId: number; presentToken: number } | null>(null);
+  const mounted = useRef(true);
+  const arenaRef = useRef<BattleArena | null>(null);
+  const unitsRef = useRef<UnitViewRegistry | null>(null);
+
+  const slots = useMemo(
+    () =>
+      [
+        { unitId: ZORO_ID, ...TWO_V_TWO_SLOTS[0] },
+        { unitId: ALLY_ID, ...TWO_V_TWO_SLOTS[1] },
+        { unitId: ENEMY_A, ...TWO_V_TWO_SLOTS[2] },
+        { unitId: ENEMY_B, ...TWO_V_TWO_SLOTS[3] },
+      ] as const,
+    [],
+  );
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      liveAction.current = null;
+      props.scene?.cancelBattleSkill();
+      arenaRef.current?.dispose();
+      unitsRef.current?.dispose();
+      arenaRef.current = null;
+      unitsRef.current = null;
+    };
+  }, [props.scene]);
 
   useEffect(() => {
     if (!props.ready || !props.scene) return;
-    props.scene.setBattleDummy(true);
+    const scene = props.scene.scene;
+    arenaRef.current?.dispose();
+    unitsRef.current?.dispose();
+    const arena = new BattleArena(scene);
+    const units = new UnitViewRegistry(scene);
+    arena.setSlots([...slots]);
+    const specs: UnitViewSpec[] = slots.map((slot) => {
+      const unit = engine.getState().units.find((row) => row.id === slot.unitId);
+      return {
+        id: slot.unitId,
+        label: unit?.label ?? slot.unitId,
+        team: slot.team,
+        kind: slot.unitId === ZORO_ID ? "character" : "synthetic",
+        position: slot.position,
+      };
+    });
+    units.sync(specs);
+    arenaRef.current = arena;
+    unitsRef.current = units;
+    props.scene.setBattleDummy(false);
     props.scene.setRecenter(true);
     props.scene.setBodyFrame(true);
+    props.scene.previewRoot.position.set(slots[0].position[0], 0, slots[0].position[2]);
+    props.scene.camera.setTarget(arena.cameraTarget());
+    props.scene.camera.radius = 520;
+    props.scene.camera.alpha = Math.PI / 2;
+    props.scene.camera.beta = 1.15;
     props.scene.setTemporaryTextures(true, previewForAsset("noesis-roster")).catch(() => undefined);
     const preview = previewForAsset("noesis-roster");
     if (preview) props.scene.playProvisionalIdle(preview);
+    props.onStatus("2v2 arena ready. Sanji specials are in the inspector model list; idle/basic G1As were missing locally.");
     return () => {
-      props.scene?.clearBattleDummy();
-      props.scene?.setBodyFrame(false);
+      liveAction.current = null;
+      props.scene?.cancelBattleSkill();
+      props.scene?.previewRoot.position.setAll(0);
+      arena.dispose();
+      units.dispose();
+      if (arenaRef.current === arena) arenaRef.current = null;
+      if (unitsRef.current === units) unitsRef.current = null;
     };
-  }, [props.ready, props.scene]);
+  }, [props.ready, props.scene, engine, slots]);
 
   const refresh = (events: BattleEvent[] = []) => {
-    setState(engine.getState());
-    if (events.length) setLog((prev) => [...events.map(formatEvent), ...prev].slice(0, 24));
+    if (!mounted.current) return;
+    const next = engine.getState();
+    setState(next);
+    for (const unit of next.units) unitsRef.current?.setAlive(unit.id, unit.alive);
+    if (events.length) setLog((prev) => [...events.map(formatEvent), ...prev].slice(0, 30));
   };
 
-  const actorIsZoro = state.phase !== "ended" && engine.currentActorId() === ZORO_ID;
-  const skill = skillOf(ZORO_MANIFEST, skillId);
-  const canBasic =
-    props.ready && !busy && actorIsZoro && skill !== null && engine.canAct(ZORO_ID, skillId, DUMMY_ID).ok;
+  const livingEnemies = state.units.filter((unit) => unit.team === "bravo" && unit.alive);
+  const selected = livingEnemies.some((unit) => unit.id === targetId) ? targetId : (livingEnemies[0]?.id ?? "");
+  const actorId = engine.currentActorId();
+  const actor = state.units.find((unit) => unit.id === actorId);
+  const actorManifest = actor ? manifestOf(actor.manifestId) : null;
+  const canPlayerAct =
+    props.ready && !busy && actorId === ZORO_ID && selected !== "" && engine.canAct(ZORO_ID, "basic", selected).ok;
 
-  const runSkill = (id: string) => {
-    if (!props.scene || busy) return;
-    const chosen = skillOf(ZORO_MANIFEST, id);
-    if (!chosen) return;
-    const check = engine.canAct(ZORO_ID, id, DUMMY_ID);
-    if (!check.ok) {
-      refresh([{ type: "blocked", reason: check.reason ?? "Blocked." }]);
+  useEffect(() => {
+    arenaRef.current?.highlight(selected || null);
+  }, [selected]);
+
+  const autoResolveUntilPlayerOrEnd = () => {
+    let guard = 0;
+    while (guard < 8) {
+      guard += 1;
+      const current = engine.getState();
+      if (current.phase === "ended") return;
+      const nextActor = engine.currentActorId();
+      if (!nextActor || nextActor === ZORO_ID) return;
+      const unit = current.units.find((row) => row.id === nextActor);
+      if (!unit?.alive) return;
+      const target =
+        current.units.find((row) => row.alive && row.team !== unit.team && row.id === ZORO_ID) ??
+        current.units.find((row) => row.alive && row.team !== unit.team);
+      if (!target) return;
+      const skillId = unit.manifestId === ZORO_MANIFEST.id ? "basic" : "dummy-poke";
+      const events = engine.resolveFully(unit.id, skillId, target.id);
+      unitsRef.current?.flash(target.id);
+      refresh(events);
+    }
+  };
+
+  const runZoroBasic = () => {
+    if (!props.scene || !canPlayerAct || !selected) return;
+    setBusy(true);
+    const started = engine.beginAction(ZORO_ID, "basic", selected);
+    refresh(started);
+    const engineId = engine.currentActionId();
+    if (engineId === null) {
+      setBusy(false);
       return;
     }
-    setBusy(true);
-    const started = engine.beginAction(ZORO_ID, id, DUMMY_ID);
-    refresh(started);
     const preview = previewForAsset("noesis-roster");
-    const note = props.scene.playBattleSkill(
+    const skill = skillOf(ZORO_MANIFEST, "basic");
+    const played = props.scene.playBattleSkill(
       preview,
-      chosen.clipId,
-      chosen.contact,
-      () => {
-        const contact = engine.applyContact();
-        props.scene?.flashBattleDummy();
+      skill?.clipId ?? null,
+      skill?.contact ?? 0.35,
+      (token) => {
+        if (!mounted.current) return;
+        if (liveAction.current?.presentToken !== token || liveAction.current.engineId !== engineId) return;
+        const contact = engine.applyContact(engineId);
+        unitsRef.current?.flash(selected);
         refresh(contact);
+        const dead = engine.getState().units.find((unit) => unit.id === selected);
+        if (dead && !dead.alive) unitsRef.current?.setAlive(selected, false);
       },
-      () => {
-        const finished = engine.finishAction();
+      (token) => {
+        if (!mounted.current) return;
+        if (liveAction.current?.presentToken !== token || liveAction.current.engineId !== engineId) return;
+        const finished = engine.finishAction(engineId);
         refresh(finished);
-        // Auto-resolve the dummy turn so Zoro can act again without a second UI.
-        const after = engine.getState();
-        if (after.phase === "idle" && engine.currentActorId() === DUMMY_ID) {
-          const auto = engine.resolveFully(DUMMY_ID, "dummy-poke", ZORO_ID);
-          refresh(auto);
-          if (preview) props.scene?.playProvisionalIdle(preview);
-        }
+        liveAction.current = null;
+        autoResolveUntilPlayerOrEnd();
         setBusy(false);
-        props.onStatus(`Skill ${id} resolved.`);
+        props.onStatus("Zoro basic resolved.");
       },
     );
-    props.onStatus(note);
+    liveAction.current = { engineId, presentToken: played.token };
+    if (played.mode === "missing") {
+      refresh(engine.abortAction(played.note, engineId));
+      liveAction.current = null;
+      setBusy(false);
+      props.onStatus(played.note);
+      return;
+    }
+    props.onStatus(played.note);
   };
 
   const reset = () => {
+    if (busy) return;
+    liveAction.current = null;
+    props.scene?.cancelBattleSkill();
     engine.reset(SEED);
-    setBusy(false);
     setLog([]);
     refresh();
+    for (const unit of engine.getState().units) unitsRef.current?.setAlive(unit.id, true);
+    setTargetId(ENEMY_A);
     const preview = previewForAsset("noesis-roster");
     if (preview) props.scene?.playProvisionalIdle(preview);
-    props.scene?.setBattleDummy(true);
-    props.onStatus("Battle reset.");
+    props.onStatus("2v2 reset.");
   };
-
-  const zoro = state.units.find((unit) => unit.id === ZORO_ID);
-  const dummy = state.units.find((unit) => unit.id === DUMMY_ID);
 
   return (
     <div className="battle-panel">
-      <h1>Battle preview</h1>
+      <h1>Battle preview 2v2</h1>
       <p className="note">
-        One Zoro versus one synthetic dummy. Damage lands once at the skill contact marker. Not a finished 5v5.
+        Zoro plus a labeled interim ally versus two labeled interim enemies on a generated arena. Sanji specials are
+        imported under Model → Noesis glTF Sanji specials. Local Sanji idle/basic G1As were missing.
       </p>
       <div className="battle-hp">
-        <p>
-          {zoro?.label ?? "Zoro"} HP {zoro?.hp ?? 0}/{zoro?.maxHp ?? 0}
-        </p>
-        <p>
-          {dummy?.label ?? "Dummy"} HP {dummy?.hp ?? 0}/{dummy?.maxHp ?? 0} {dummy?.alive ? "" : "(down)"}
-        </p>
+        {state.units.map((unit) => (
+          <p key={unit.id}>
+            {unit.label} HP {unit.hp}/{unit.maxHp} {unit.alive ? "" : "(down)"} [{unit.team}]
+          </p>
+        ))}
         <p className="note">
-          Phase {state.phase}. Actor {engine.currentActorId() ?? "—"}. Seed {state.seed}.
+          Phase {state.phase}. Actor {actorId ?? "—"}
+          {actorManifest ? ` (${actorManifest.label})` : ""}. Seed {state.seed}.
           {state.winner ? ` Winner ${state.winner}.` : ""}
         </p>
       </div>
       <label>
-        Skill
-        <select value={skillId} onChange={(event) => setSkillId(event.target.value)} disabled={busy}>
-          {ZORO_MANIFEST.skills.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.label} ({item.confidence})
+        Target
+        <select
+          value={selected}
+          disabled={busy || livingEnemies.length === 0}
+          onChange={(event) => setTargetId(event.target.value)}
+        >
+          {livingEnemies.map((unit) => (
+            <option key={unit.id} value={unit.id}>
+              {unit.label}
             </option>
           ))}
         </select>
       </label>
       <div className="row">
-        <button type="button" disabled={!canBasic || skillId !== "basic"} onClick={() => runSkill("basic")}>
+        <button type="button" disabled={!canPlayerAct} onClick={runZoroBasic}>
           Basic Attack
         </button>
-        <button type="button" disabled={!canBasic} onClick={() => runSkill(skillId)}>
-          Use selected skill
-        </button>
-        <button type="button" onClick={reset}>
+        <button type="button" disabled={busy} onClick={reset}>
           Reset
         </button>
       </div>

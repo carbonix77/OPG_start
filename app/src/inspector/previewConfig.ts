@@ -490,10 +490,28 @@ export const ZORO_ROSTER_PREVIEW: PreviewConfig = {
   ],
 };
 
+/** Sanji specials only. Idle and basic G1As were missing from the local copy. */
+export const SANJI_PREVIEW: PreviewConfig = {
+  ...FIXTURE_PREVIEW,
+  id: "sanji-specials",
+  textureDir: "",
+  followNodes: FOLLOW_NODE_CANDIDATES,
+  idleClip: "Sanji_1290",
+  attackClip: "Sanji_1300",
+  blendSeconds: 0.28,
+  behaviors: [
+    { id: "idle", clip: "Sanji_1290", label: "Provisional special used as idle stand-in", confidence: "provisional" },
+    { id: "basic", clip: "Sanji_1300", label: "Provisional special used as basic stand-in", confidence: "provisional" },
+    { id: "special-b", clip: "Sanji_1310", label: "Sanji_1310 candidate", confidence: "candidate" },
+    { id: "special", clip: "Sanji_1330", label: "Sanji_1330 special candidate", confidence: "candidate" },
+  ],
+};
+
 const PREVIEW_REGISTRY: Record<string, PreviewConfig> = {
   "noesis-present": ZORO_PREVIEW,
   "noesis-moves": ZORO_MOVES_PREVIEW,
   "noesis-roster": ZORO_ROSTER_PREVIEW,
+  "noesis-sanji": SANJI_PREVIEW,
   fixture: FIXTURE_PREVIEW,
 };
 

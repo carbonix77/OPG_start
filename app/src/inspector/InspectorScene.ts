@@ -206,7 +206,7 @@ export class InspectorScene {
   private assetId = "";
   private loadToken = 0;
   private temporary: TemporaryLook | null = null;
-  private readonly previewRoot: TransformNode;
+  readonly previewRoot: TransformNode;
   private recenter = false;
   private tight = false;
   private framePhase: "idle" | "attack" = "idle";
@@ -253,6 +253,8 @@ export class InspectorScene {
   private battleDummyMat: StandardMaterial | null = null;
   private battleContact: Observer<Scene> | null = null;
   private battleContactArmed = false;
+  private battleToken = 0;
+  private battleFlashTimer: number | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -461,35 +463,33 @@ export class InspectorScene {
   }
 
   /**
-   * Plays one skill clip, fires contact once at the normalized marker, then returns to idle.
-   * Missing clips fall back without inventing motion.
+   * Plays one skill clip for a battle action token.
+   * Missing clips do not invent motion. Callers must abort the engine action when mode is "missing".
    */
   playBattleSkill(
     config: PreviewConfig | null,
     clipName: string | null,
     contactNormalized: number,
-    onContact: () => void,
-    onComplete: () => void,
-  ): string {
-    this.clearBattleContact();
-    if (!config) {
-      onContact();
-      onComplete();
-      return "No preview config. Contact resolved without a clip.";
-    }
-    if (!clipName) {
-      onContact();
-      this.playProvisionalIdle(config);
-      onComplete();
-      return "This skill has no clip. Contact resolved and idle resumed.";
+    onContact: (token: number) => void,
+    onComplete: (token: number) => void,
+  ): { token: number; note: string; mode: "clip" | "missing" } {
+    this.cancelBattleSkill();
+    const token = ++this.battleToken;
+    if (!config || !clipName) {
+      return {
+        token,
+        mode: "missing",
+        note: "No clip available. Presentation cancelled without fabricated motion.",
+      };
     }
     const idle = this.groups.find((item) => item.name === config.idleClip);
     const attack = this.groups.find((item) => item.name === clipName);
     if (!idle || !attack) {
-      onContact();
-      if (idle) this.playProvisionalIdle(config);
-      onComplete();
-      return `Needs ${config.idleClip} and ${clipName} in this file. Contact resolved without fabricated motion.`;
+      return {
+        token,
+        mode: "missing",
+        note: `Needs ${config.idleClip} and ${clipName} in this file. Presentation cancelled without fabricated motion.`,
+      };
     }
     this.leaveTimeline();
     this.clearAttackEnd();
@@ -505,34 +505,42 @@ export class InspectorScene {
     attack.reset();
     attack.play(false);
     this.battleContact = this.scene.onBeforeRenderObservable.add(() => {
-      if (!this.battleContactArmed) return;
-      const duration = Math.max(0.001, this.seconds(attack));
+      if (!this.battleContactArmed || token !== this.battleToken) return;
       const frame = attack.animatables[0]?.masterFrame ?? attack.from;
       const normalized = clamp01((frame - attack.from) / Math.max(0.001, attack.to - attack.from));
       if (normalized + 1e-4 >= contactNormalized || normalized >= 0.999) {
         this.battleContactArmed = false;
-        onContact();
+        onContact(token);
       }
-      void duration;
     });
     this.attackEnd = attack.onAnimationGroupEndObservable.add(() => {
+      if (token !== this.battleToken) return;
       this.clearAttackEnd();
       this.clearBattleContact();
-      if (this.battleContactArmed) {
-        this.battleContactArmed = false;
-        onContact();
-      }
       this.stopPhantomClips();
       this.restoreShells();
       if (!this.groups.includes(idle)) {
-        onComplete();
+        onComplete(token);
         return;
       }
       this.framePhase = "idle";
       this.blendToIdle(attack, idle, config.blendSeconds);
-      onComplete();
+      onComplete(token);
     });
-    return `${clipName} plays once. Contact fires at ${contactNormalized}. Then ${config.idleClip} loops.`;
+    return {
+      token,
+      mode: "clip",
+      note: `${clipName} plays once. Contact fires at ${contactNormalized}. Then ${config.idleClip} loops.`,
+    };
+  }
+
+  /** Stops battle presentation callbacks. Stale tokens no longer fire. */
+  cancelBattleSkill(): void {
+    this.battleToken += 1;
+    this.clearBattleContact();
+    this.clearAttackEnd();
+    this.clearBattleFlash();
+    for (const group of this.groups) group.stop();
   }
 
   /** Places a simple synthetic target beside the follow node. */
@@ -552,13 +560,16 @@ export class InspectorScene {
 
   flashBattleDummy(): void {
     if (!this.battleDummyMat) return;
+    this.clearBattleFlash();
     this.battleDummyMat.diffuseColor.set(1, 0.85, 0.2);
-    window.setTimeout(() => {
+    this.battleFlashTimer = window.setTimeout(() => {
+      this.battleFlashTimer = null;
       this.battleDummyMat?.diffuseColor.set(0.75, 0.22, 0.18);
     }, 180);
   }
 
   clearBattleDummy(): void {
+    this.clearBattleFlash();
     if (this.battleDummy && !this.battleDummy.isDisposed()) this.battleDummy.dispose(false, true);
     this.battleDummy = null;
     this.battleDummyMat?.dispose();
@@ -1676,12 +1687,19 @@ export class InspectorScene {
     this.battleContactArmed = false;
   }
 
+  private clearBattleFlash(): void {
+    if (this.battleFlashTimer !== null) {
+      window.clearTimeout(this.battleFlashTimer);
+      this.battleFlashTimer = null;
+    }
+  }
+
   private disposeLoaded(): void {
     this.clearPhantoms();
     this.clearEffects();
     this.leaveTimeline();
     this.clearAttackEnd();
-    this.clearBattleContact();
+    this.cancelBattleSkill();
     this.clearBattleDummy();
     this.tight = false;
     this.clearMouthPreview();
