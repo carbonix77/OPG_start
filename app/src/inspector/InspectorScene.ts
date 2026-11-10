@@ -93,6 +93,7 @@ export class InspectorScene {
   private readonly previewRoot: TransformNode;
   private recenter = false;
   private tight = false;
+  private framePhase: "idle" | "attack" = "idle";
   private attackEnd: Observer<AnimationGroup> | null = null;
   private sheetTest: { mesh: Mesh; previous: Material | null; material: PBRMaterial; texture: Texture } | null = null;
 
@@ -204,6 +205,7 @@ export class InspectorScene {
     const idle = this.groups.find((item) => item.name === "Zoro_0000");
     if (!idle) return "This file has no Zoro_0000. The clip is not copied onto another skeleton.";
     this.clearAttackEnd();
+    this.framePhase = "idle";
     this.armPreview();
     for (const other of this.groups) {
       if (other !== idle) other.stop();
@@ -220,6 +222,7 @@ export class InspectorScene {
     const attack = this.groups.find((item) => item.name === "Zoro_1330");
     if (!idle || !attack) return "Needs Zoro_0000 and Zoro_1330 in this file. Clips are not retargeted.";
     this.clearAttackEnd();
+    this.framePhase = "attack";
     this.armPreview();
     for (const other of this.groups) {
       if (other !== attack) other.stop();
@@ -229,10 +232,8 @@ export class InspectorScene {
     this.attackEnd = attack.onAnimationGroupEndObservable.add(() => {
       this.clearAttackEnd();
       if (!this.groups.includes(idle)) return;
-      for (const other of this.groups) {
-        if (other !== idle) other.stop();
-      }
-      idle.play(true);
+      this.framePhase = "idle";
+      this.blendToIdle(attack, idle);
     });
     return "Zoro_1330 plays once on this skeleton, then Zoro_0000 loops. The clip keys are unchanged.";
   }
@@ -580,39 +581,60 @@ export class InspectorScene {
     this.setVisibilityPreset("hide-static");
     this.follow = true;
     this.tight = true;
+    this.recenter = true;
     this.camera.alpha = Math.PI / 2;
     this.camera.beta = 1.15;
     this.aimPreview();
   }
 
-  /** Frames the body. Long blades are left out of the fit so they do not push the character small. */
+  /**
+   * Fits the enabled meshes, including long blades.
+   * Attack uses a wider radius than idle. World-static meshes stay hidden in this mode.
+   */
   private aimPreview(): void {
     const origin = this.followNode?.getAbsolutePosition();
     if (!origin) return;
     this.refreshBodyBounds();
-    const acc = Vector3.Zero();
-    let count = 0;
-    let minY = Number.POSITIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
+    let min = new Vector3(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY);
+    let max = new Vector3(Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY);
     for (const mesh of this.bodyMeshes()) {
       if (!mesh.isEnabled()) continue;
       const box = mesh.getBoundingInfo().boundingBox;
-      const extent = box.extendSizeWorld;
-      const longest = Math.max(extent.x, extent.y, extent.z) * 2;
-      if (longest > 130) continue;
-      if (Vector3.Distance(box.centerWorld, origin) > 180) continue;
-      acc.addInPlace(box.centerWorld);
-      count += 1;
-      minY = Math.min(minY, box.minimumWorld.y);
-      maxY = Math.max(maxY, box.maximumWorld.y);
+      if (Vector3.Distance(box.centerWorld, origin) > 400) continue;
+      min = Vector3.Minimize(min, box.minimumWorld);
+      max = Vector3.Maximize(max, box.maximumWorld);
     }
-    if (count === 0) {
+    if (!Number.isFinite(min.x)) {
       this.camera.target.copyFrom(origin);
       return;
     }
-    this.camera.target.copyFrom(acc.scaleInPlace(1 / count));
-    const height = maxY - minY;
-    if (height > 40 && height < 400) this.camera.radius = Math.min(480, Math.max(180, height * 1.15));
+    const size = max.subtract(min);
+    this.camera.target.copyFrom(min.add(size.scale(0.5)));
+    const span = Math.max(size.x, size.y, size.z);
+    const factor = this.framePhase === "attack" ? 1.2 : 1.05;
+    this.camera.radius = Math.min(1400, Math.max(380, span * factor));
+  }
+
+  /** Preview crossfade. Does not write clip keys. The pose can still change. */
+  private blendToIdle(attack: AnimationGroup, idle: AnimationGroup): void {
+    idle.reset();
+    idle.start(true, idle.speedRatio, idle.from, idle.to, false);
+    idle.setWeightForAllAnimatables(0);
+    attack.setWeightForAllAnimatables(1);
+    const started = performance.now();
+    const step = () => {
+      if (!this.groups.includes(idle)) return;
+      const t = Math.min(1, (performance.now() - started) / 280);
+      attack.setWeightForAllAnimatables(1 - t);
+      idle.setWeightForAllAnimatables(t);
+      if (t < 1) {
+        requestAnimationFrame(step);
+        return;
+      }
+      attack.stop();
+      idle.setWeightForAllAnimatables(1);
+    };
+    requestAnimationFrame(step);
   }
 
   private clearAttackEnd(): void {

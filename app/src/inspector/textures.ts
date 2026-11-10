@@ -11,7 +11,19 @@ export interface TextureNote {
   normal: boolean;
   /** weapon00–weapon04 in map.json were assigned by eye, not from a recovered material index. */
   guessed: boolean;
+  /** material-name uses Material_N. mesh-index copies the GLB slot after the vertex counts matched. */
+  via: "material-name" | "mesh-index";
 }
+
+/**
+ * GLB primitive material slot for mesh index N.
+ * Noesis submesh N has the same vertex count. This is not a recovered G1T index.
+ * Slots 11/12 and 20/21 are swapped. Material 20 is shared by meshes 21–24.
+ */
+const GLB_MATERIAL_BY_MESH = [
+  0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 11, 13, 14, 15, 16, 17, 18, 19, 21, 20, 20, 20, 20, 22, 23, 24, 25, 26, 27, 28,
+  29, 30, 31, 32, 33, 34, 35, 36,
+];
 
 export interface TemporaryLook {
   notes: TextureNote[];
@@ -19,9 +31,10 @@ export interface TemporaryLook {
 }
 
 /**
- * Applies preview/textures/zoro/map.json onto materials named Material_N.
- * The map is the existing reconstructed assignment. It is not the game shader
- * and it is not a recovered material-to-G1T index.
+ * Applies preview/textures/zoro/map.json.
+ * Materials named Material_N use that number.
+ * Other meshes use the GLB material slot of the same mesh index when the vertex counts match.
+ * The map is reconstructed. It is not the game shader and it is not a recovered G1T index.
  * UV invertY is false, matching the glTF meshes and the older viewer.
  * Normals use Babylon's DirectX reader, so OpenGL-style maps set invertNormalMapY.
  */
@@ -33,22 +46,28 @@ export async function applyTemporaryLook(scene: Scene, meshes: Mesh[]): Promise<
   const created: PBRMaterial[] = [];
   const previous = new Map<Mesh, Material | null>();
   const notes: TextureNote[] = [];
-  const groups = new Map<string, { material: Material; meshes: Mesh[] }>();
+  const groups = new Map<string, { label: string; index: number | null; via: TextureNote["via"]; meshes: Mesh[] }>();
 
   for (const mesh of meshes) {
-    const material = mesh.material;
-    if (!material) continue;
-    const group = groups.get(material.name) ?? { material, meshes: [] };
+    const named = mesh.material ? /^Material_(\d+)$/.exec(mesh.material.name) : null;
+    const meshIndex = /(?:^Mesh_|submesh_)(\d+)(?:_|$)/.exec(mesh.name);
+    const via: TextureNote["via"] = named ? "material-name" : "mesh-index";
+    const index = named
+      ? Number(named[1])
+      : meshIndex
+        ? (GLB_MATERIAL_BY_MESH[Number(meshIndex[1])] ?? null)
+        : null;
+    const key = `${via}:${index ?? "none"}`;
+    const group = groups.get(key) ?? { label: mesh.material?.name ?? mesh.name, index, via, meshes: [] };
     group.meshes.push(mesh);
-    groups.set(material.name, group);
+    groups.set(key, group);
   }
 
   for (const group of groups.values()) {
-    const match = /^Material_(\d+)$/.exec(group.material.name);
-    const index = match ? Number(match[1]) : null;
+    const index = group.index;
     const sheet = index === null ? "" : (assignment[String(index)] ?? "");
     if (!sheet) {
-      notes.push({ material: group.material.name, index, sheet: "", normal: false, guessed: false });
+      notes.push({ material: group.label, index, sheet: "", normal: false, guessed: false, via: group.via });
       continue;
     }
     let pair = images.get(sheet);
@@ -63,7 +82,7 @@ export async function applyTemporaryLook(scene: Scene, meshes: Mesh[]): Promise<
       pair = { albedo, normal };
       images.set(sheet, pair);
     }
-    const material = new PBRMaterial(`temp-${group.material.name}`, scene);
+    const material = new PBRMaterial(`temp-${group.via}-${index}`, scene);
     material.albedoTexture = pair.albedo;
     material.metallic = 0;
     material.roughness = 0.85;
@@ -84,11 +103,12 @@ export async function applyTemporaryLook(scene: Scene, meshes: Mesh[]): Promise<
       mesh.material = material;
     }
     notes.push({
-      material: group.material.name,
+      material: group.label,
       index,
       sheet,
       normal: pair.normal !== null,
       guessed: sheet.startsWith("weapon"),
+      via: group.via,
     });
   }
 

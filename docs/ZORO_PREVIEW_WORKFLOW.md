@@ -20,7 +20,7 @@ Preview recenter cancels the follow node's world X and Z on a parent. It does no
 
 ## Materials and swords
 
-`preview/textures/zoro/map.json` applies only to materials named `Material_N`. It is a reconstructed assignment. The mouth blade, `Mesh_36`, uses `Material_33`, which the map sends to `cloth`. That stays a diagnostic baseline.
+`preview/textures/zoro/map.json` applies to materials named `Material_N`. On a Noesis mesh it uses the GLB material slot of the same mesh index, after the vertex counts matched. It is a reconstructed assignment. The mouth blade, mesh 36, uses slot 33, which the map sends to `cloth`. That stays a diagnostic baseline.
 
 Hand stacks `17` with `27`, and `30` with `33` and `39`, stay overlapped through the sampled clips. Show all is the default. Hiding meshes 3, 22, 23, and 24 is a temporary diagnostic for tiny world-static meshes.
 

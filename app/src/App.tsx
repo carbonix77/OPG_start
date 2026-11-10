@@ -32,6 +32,7 @@ export function App() {
   const [sheetNote, setSheetNote] = useState("");
   const [preset, setPreset] = useState<"all" | "hide-static">("all");
   const [viewportOnly, setViewportOnly] = useState(false);
+  const [wideFrame, setWideFrame] = useState(false);
   const [textureNotes, setTextureNotes] = useState<TextureNote[]>([]);
   const [samples, setSamples] = useState<MeshSample[]>([]);
   const [status, setStatus] = useState("Loading");
@@ -54,7 +55,7 @@ export function App() {
 
   useEffect(() => {
     sceneRef.current?.resize();
-  }, [viewportOnly]);
+  }, [viewportOnly, wideFrame]);
 
   useEffect(() => {
     const inspector = sceneRef.current;
@@ -84,7 +85,7 @@ export function App() {
   const asset = LOCAL_ASSETS.find((item) => item.id === assetId);
 
   return (
-    <div className={viewportOnly ? "app viewport-only" : "app"}>
+    <div className={["app", viewportOnly ? "viewport-only" : "", wideFrame ? "frame-wide" : ""].filter(Boolean).join(" ")}>
       <aside>
         <h1>Zoro inspection</h1>
         <p className="note">Neither file is the canonical runtime model. Bind pose is not a verified idle.</p>
@@ -127,6 +128,13 @@ export function App() {
             onClick={() => {
               setFollow(true);
               setPreset("hide-static");
+              setTextures(true);
+              setWideFrame(true);
+              setRecenter(true);
+              sceneRef.current?.setRecenter(true);
+              void sceneRef.current?.setTemporaryTextures(true).then((notes) => {
+                if (sceneRef.current) setTextureNotes(notes);
+              });
               setPreviewNote(sceneRef.current?.playProvisionalIdle() ?? "");
             }}
           >
@@ -137,6 +145,13 @@ export function App() {
             onClick={() => {
               setFollow(true);
               setPreset("hide-static");
+              setTextures(true);
+              setWideFrame(true);
+              setRecenter(true);
+              sceneRef.current?.setRecenter(true);
+              void sceneRef.current?.setTemporaryTextures(true).then((notes) => {
+                if (sceneRef.current) setTextureNotes(notes);
+              });
               setPreviewNote(sceneRef.current?.playAttackThenIdle() ?? "");
             }}
           >
@@ -208,6 +223,10 @@ export function App() {
           />
           Viewport only. Hides this panel for a cropped frame.
         </label>
+        <label className="check">
+          <input type="checkbox" checked={wideFrame} onChange={(event) => setWideFrame(event.target.checked)} />
+          16:9 frame. The preview buttons turn this on.
+        </label>
         <label>
           Mesh 36 test sheet
           <select
@@ -257,10 +276,12 @@ export function App() {
         </label>
         {textureNotes.length > 0 ? (
           <p className="note">
-            {textureNotes
-              .filter((note) => note.sheet)
-              .map((note) => `${note.material} ${note.sheet}${note.guessed ? " guessed" : ""}${note.normal ? " +n" : ""}`)
-              .join(" · ")}
+            {textureNotes.some((note) => note.via === "mesh-index")
+              ? "Mesh index matched the GLB material slot. Vertex counts matched. Sword sheets stay guessed."
+              : textureNotes
+                  .filter((note) => note.sheet)
+                  .map((note) => `${note.material} ${note.sheet}${note.guessed ? " guessed" : ""}${note.normal ? " +n" : ""}`)
+                  .join(" · ")}
           </p>
         ) : null}
         <label className="check">

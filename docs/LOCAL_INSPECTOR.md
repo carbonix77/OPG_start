@@ -38,7 +38,7 @@ Those glTF files also need their `.bin` next to them. If a selector fails, the m
 - "Sword view" can hide meshes 3, 22, 23, and 24 for a look. Show all stays the default, and the choice is not saved.
 - "Preview recenter" cancels the follow node's world X and Z on a preview parent. The clip keys stay as they are. Loop still restarts that motion when it is on.
 - "Viewport only" hides the side panel and the status strip so a capture is the 3D view.
-- "Provisional idle" loops `Zoro_0000` only when that clip is already in the loaded file. "1330, then idle" plays `Zoro_1330` once and returns to that loop. Both use the file's own skeleton. The preview hides the tiny world-static meshes and follows the root at a closer radius. Show all is still available. The clips are not retargeted.
+- "Provisional idle" loops `Zoro_0000` only when that clip is already in the loaded file. "1330, then idle" plays `Zoro_1330` once, crossfades for about 0.28 seconds, and returns to that loop. Both use the file's own skeleton. The buttons also turn on the temporary textures and a 16:9 frame. On a Noesis mesh, the sheet comes from the GLB material slot of the same mesh index. Vertex counts matched. That is still the reconstructed map. The preview hides the tiny world-static meshes and fits the enabled meshes, including long blades. Show all is still available. The clips are not retargeted.
 
 `Zoro_1320`, `Zoro_1322`, and `Zoro_1324` stay separate clips. The page does not play them on three bodies.
 
