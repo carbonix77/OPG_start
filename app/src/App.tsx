@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { BattlePanel } from "./battle/BattlePanel";
 import { LOCAL_ASSETS } from "./inspector/assets";
 import { InspectorScene, type MeshSample, type SceneFacts, type VisibilityPreset } from "./inspector/InspectorScene";
 import { previewForAsset } from "./inspector/previewConfig";
@@ -45,6 +46,7 @@ export function App() {
   const [samples, setSamples] = useState<MeshSample[]>([]);
   const [status, setStatus] = useState("Loading");
   const [previewNote, setPreviewNote] = useState("");
+  const [mode, setMode] = useState<"inspector" | "battle">("inspector");
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -105,10 +107,36 @@ export function App() {
   const asset = LOCAL_ASSETS.find((item) => item.id === assetId);
   const preview = previewForAsset(assetId);
   const behavior = preview?.behaviors.find((item) => item.id === behaviorId) ?? preview?.behaviors[0];
+  const battleReady = mode === "battle" && facts.assetId === "noesis-roster" && !facts.error;
 
   return (
     <div className={["app", viewportOnly ? "viewport-only" : "", wideFrame ? "frame-wide" : ""].filter(Boolean).join(" ")}>
       <aside>
+        <label>
+          Mode
+          <select
+            value={mode}
+            onChange={(event) => {
+              const next = event.target.value === "battle" ? "battle" : "inspector";
+              setMode(next);
+              if (next === "battle") {
+                setAssetId("noesis-roster");
+                setWideFrame(true);
+                setViewportOnly(false);
+              } else {
+                sceneRef.current?.clearBattleDummy();
+                sceneRef.current?.setBodyFrame(false);
+              }
+            }}
+          >
+            <option value="inspector">Inspector</option>
+            <option value="battle">Battle preview</option>
+          </select>
+        </label>
+        {mode === "battle" ? (
+          <BattlePanel scene={sceneRef.current} ready={battleReady} onStatus={setStatus} />
+        ) : (
+          <>
         <h1>Zoro inspection</h1>
         <p className="note">Neither file is the canonical runtime model. Bind pose is not a verified idle.</p>
         <label>
@@ -579,6 +607,8 @@ export function App() {
             </li>
           ))}
         </ul>
+          </>
+        )}
       </aside>
       <main>
         <canvas ref={canvasRef} />

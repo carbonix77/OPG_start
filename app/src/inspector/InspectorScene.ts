@@ -249,6 +249,10 @@ export class InspectorScene {
   private readonly tipDir = new Vector3();
   /** Milliseconds spent measuring a tip vertex. Zero until the first measurement. */
   tipMeasureMs = 0;
+  private battleDummy: Mesh | null = null;
+  private battleDummyMat: StandardMaterial | null = null;
+  private battleContact: Observer<Scene> | null = null;
+  private battleContactArmed = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -454,6 +458,111 @@ export class InspectorScene {
       this.blendToIdle(attack, idle, config.blendSeconds);
     });
     return `${clipName} plays once on this skeleton, then ${config.idleClip} loops. The clip keys are unchanged.`;
+  }
+
+  /**
+   * Plays one skill clip, fires contact once at the normalized marker, then returns to idle.
+   * Missing clips fall back without inventing motion.
+   */
+  playBattleSkill(
+    config: PreviewConfig | null,
+    clipName: string | null,
+    contactNormalized: number,
+    onContact: () => void,
+    onComplete: () => void,
+  ): string {
+    this.clearBattleContact();
+    if (!config) {
+      onContact();
+      onComplete();
+      return "No preview config. Contact resolved without a clip.";
+    }
+    if (!clipName) {
+      onContact();
+      this.playProvisionalIdle(config);
+      onComplete();
+      return "This skill has no clip. Contact resolved and idle resumed.";
+    }
+    const idle = this.groups.find((item) => item.name === config.idleClip);
+    const attack = this.groups.find((item) => item.name === clipName);
+    if (!idle || !attack) {
+      onContact();
+      if (idle) this.playProvisionalIdle(config);
+      onComplete();
+      return `Needs ${config.idleClip} and ${clipName} in this file. Contact resolved without fabricated motion.`;
+    }
+    this.leaveTimeline();
+    this.clearAttackEnd();
+    this.attackClip = clipName;
+    this.framePhase = "attack";
+    this.armPreview(config);
+    this.setBodyFrame(true);
+    this.setRecenter(true);
+    this.battleContactArmed = true;
+    for (const other of this.groups) {
+      if (other !== attack) other.stop();
+    }
+    attack.reset();
+    attack.play(false);
+    this.battleContact = this.scene.onBeforeRenderObservable.add(() => {
+      if (!this.battleContactArmed) return;
+      const duration = Math.max(0.001, this.seconds(attack));
+      const frame = attack.animatables[0]?.masterFrame ?? attack.from;
+      const normalized = clamp01((frame - attack.from) / Math.max(0.001, attack.to - attack.from));
+      if (normalized + 1e-4 >= contactNormalized || normalized >= 0.999) {
+        this.battleContactArmed = false;
+        onContact();
+      }
+      void duration;
+    });
+    this.attackEnd = attack.onAnimationGroupEndObservable.add(() => {
+      this.clearAttackEnd();
+      this.clearBattleContact();
+      if (this.battleContactArmed) {
+        this.battleContactArmed = false;
+        onContact();
+      }
+      this.stopPhantomClips();
+      this.restoreShells();
+      if (!this.groups.includes(idle)) {
+        onComplete();
+        return;
+      }
+      this.framePhase = "idle";
+      this.blendToIdle(attack, idle, config.blendSeconds);
+      onComplete();
+    });
+    return `${clipName} plays once. Contact fires at ${contactNormalized}. Then ${config.idleClip} loops.`;
+  }
+
+  /** Places a simple synthetic target beside the follow node. */
+  setBattleDummy(enabled: boolean, offset: [number, number, number] = [180, 40, 0]): void {
+    this.clearBattleDummy();
+    if (!enabled) return;
+    const mat = new StandardMaterial("battle-dummy-mat", this.scene);
+    mat.diffuseColor = new Color3(0.75, 0.22, 0.18);
+    mat.specularColor = Color3.Black();
+    const mesh = MeshBuilder.CreateBox("battle-dummy", { width: 50, height: 110, depth: 40 }, this.scene);
+    mesh.material = mat;
+    mesh.parent = this.previewRoot;
+    mesh.position.set(offset[0], offset[1], offset[2]);
+    this.battleDummy = mesh;
+    this.battleDummyMat = mat;
+  }
+
+  flashBattleDummy(): void {
+    if (!this.battleDummyMat) return;
+    this.battleDummyMat.diffuseColor.set(1, 0.85, 0.2);
+    window.setTimeout(() => {
+      this.battleDummyMat?.diffuseColor.set(0.75, 0.22, 0.18);
+    }, 180);
+  }
+
+  clearBattleDummy(): void {
+    if (this.battleDummy && !this.battleDummy.isDisposed()) this.battleDummy.dispose(false, true);
+    this.battleDummy = null;
+    this.battleDummyMat?.dispose();
+    this.battleDummyMat = null;
   }
 
   /** Leaves the preview frame and shows every mesh again. */
@@ -1559,11 +1668,21 @@ export class InspectorScene {
     this.sheetTest = null;
   }
 
+  private clearBattleContact(): void {
+    if (this.battleContact) {
+      this.scene.onBeforeRenderObservable.remove(this.battleContact);
+      this.battleContact = null;
+    }
+    this.battleContactArmed = false;
+  }
+
   private disposeLoaded(): void {
     this.clearPhantoms();
     this.clearEffects();
     this.leaveTimeline();
     this.clearAttackEnd();
+    this.clearBattleContact();
+    this.clearBattleDummy();
     this.tight = false;
     this.clearMouthPreview();
     this.clearSheetTest();

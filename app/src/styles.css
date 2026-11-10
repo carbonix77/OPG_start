@@ -25,6 +25,10 @@ button:disabled { opacity: 0.4; }
 .facts { padding: 8px 12px; background: #141518; overflow: auto; max-height: 220px; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
 td, th { border-bottom: 1px solid #333; text-align: left; padding: 2px 4px; vertical-align: top; }
+.battle-panel { display: grid; gap: 8px; }
+.battle-hp p { margin: 0 0 6px; }
+.battle-log { list-style: none; padding: 0; margin: 0; max-height: 220px; overflow: auto; color: #b7b3ac; }
+.battle-log li { border-bottom: 1px solid #333; padding: 4px 0; font-size: 12px; }
 @media (max-width: 800px) {
   .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   aside { max-height: 42vh; }

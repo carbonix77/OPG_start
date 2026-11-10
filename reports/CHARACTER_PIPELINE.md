@@ -2,6 +2,8 @@
 
 The inspector scene does not contain a character's clip names or mesh ids. Those live in `previewConfig.ts`, and `previewForAsset` returns null for an id that is not registered. `noesis-present` is the cinematic Zoro file. `noesis-moves` is the earlier five-clip file. `noesis-roster` is one skeleton with the labeled moves, plus optional phantom clips. `fixture` is a generated config with no mouth mesh and no cinematic. A roster check returned `zoro-roster`, two phantom entries, and null for an unknown id.
 
+Battle data lives in `app/src/combat/` manifests. The headless engine takes unit ids and skill ids from those manifests. Battle preview mode loads the roster asset and a synthetic dummy; it does not put Zoro names inside the engine.
+
 ## What a second character takes
 
 1. Copy that character's `.g1m`, `.oid`, and only the `.g1a` files under test into an empty folder under `private-assets/validation/`.

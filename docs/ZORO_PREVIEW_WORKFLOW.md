@@ -24,6 +24,10 @@ Preview recenter cancels the follow node's world X and Z on a parent. It does no
 
 Hand stacks `17` with `27`, and `30` with `33` and `39`, stay overlapped through the sampled clips. Confirmed hand shells hides 27, 30, and 33 only after their centers stay within the configured gap on every labeled clip. Hip meshes stay, and Show all returns when the action ends. The phantom copies use the same material map when temporary textures are on. Hiding meshes 3, 22, 23, and 24 is a temporary diagnostic for tiny world-static meshes.
 
+## Battle preview
+
+Choose Mode → Battle preview. The page loads the roster file, places a synthetic dummy box, and enables temporary textures. Basic Attack plays `Zoro_0500`, applies damage once at the skill contact marker, returns to `Zoro_0000`, then resolves the dummy poke. Experimental skills stay available on the same path. Reset restores HP and idle. This is a vertical slice, not a finished 5v5.
+
 ## Review frames
 
 "Viewport only" hides the panel. Frame the character after the pose is set, so a root-motion frame does not include world-static meshes. Put the PNGs in `reports/screenshots/` with the clip and time in the file name.
