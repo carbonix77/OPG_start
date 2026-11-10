@@ -61,8 +61,10 @@ export class UnitViewRegistry {
         this.views.set(spec.id, view);
       }
       view.root.position.set(spec.position[0], spec.position[1], spec.position[2]);
+      view.root.rotation.y = spec.position[0] < 0 ? Math.PI / 2 : -Math.PI / 2;
       view.label = spec.label;
       view.kind = spec.kind;
+      if (spec.kind === "character") view.body.setEnabled(false);
     }
   }
 
@@ -83,8 +85,15 @@ export class UnitViewRegistry {
   setAlive(unitId: string, alive: boolean): void {
     const view = this.views.get(unitId);
     if (!view) return;
-    view.body.setEnabled(alive);
+    view.body.setEnabled(alive && view.kind === "synthetic");
     view.root.setEnabled(alive);
+  }
+
+  /** Hides the placeholder box once a real skinned character occupies the slot. */
+  hidePlaceholder(unitId: string): void {
+    const view = this.views.get(unitId);
+    if (!view) return;
+    view.body.setEnabled(false);
   }
 
   attachCharacterRoot(unitId: string, node: TransformNode): void {

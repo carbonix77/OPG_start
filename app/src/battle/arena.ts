@@ -81,8 +81,8 @@ export class BattleArena {
 }
 
 export const TWO_V_TWO_SLOTS: Omit<ArenaSlot, "unitId">[] = [
-  { team: "alpha", position: [-160, 0, 80] },
-  { team: "alpha", position: [-160, 0, -80] },
-  { team: "bravo", position: [160, 0, 80] },
-  { team: "bravo", position: [160, 0, -80] },
+  { team: "alpha", position: [-220, 0, 110] },
+  { team: "alpha", position: [-220, 0, -110] },
+  { team: "bravo", position: [220, 0, 110] },
+  { team: "bravo", position: [220, 0, -110] },
 ];

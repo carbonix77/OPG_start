@@ -319,6 +319,21 @@ export class InspectorScene {
     return registryCheck();
   }
 
+  /** Clears the inspector character so battle can own multi-unit roots. */
+  prepareBattleScene(): void {
+    this.cancelBattleSkill();
+    this.clearBattleDummy();
+    this.setBodyFrame(false);
+    this.setFollow(false);
+    this.setRecenter(false);
+    this.disposeLoaded();
+    this.assetId = "battle-arena";
+    this.camera.setTarget(new Vector3(0, 70, 0));
+    this.camera.radius = 620;
+    this.camera.alpha = Math.PI / 2;
+    this.camera.beta = 1.05;
+  }
+
   async load(asset: LocalAsset): Promise<SceneFacts> {
     const token = ++this.loadToken;
     this.stop();

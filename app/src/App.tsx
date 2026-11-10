@@ -68,6 +68,7 @@ export function App() {
   }, [viewportOnly, wideFrame]);
 
   useEffect(() => {
+    if (mode === "battle") return;
     const inspector = sceneRef.current;
     const asset = LOCAL_ASSETS.find((item) => item.id === assetId);
     if (!inspector || !asset) return;
@@ -102,12 +103,11 @@ export function App() {
     return () => {
       cancel = true;
     };
-  }, [assetId]);
+  }, [assetId, mode]);
 
   const asset = LOCAL_ASSETS.find((item) => item.id === assetId);
   const preview = previewForAsset(assetId);
   const behavior = preview?.behaviors.find((item) => item.id === behaviorId) ?? preview?.behaviors[0];
-  const battleReady = mode === "battle" && facts.assetId === "noesis-roster" && !facts.error;
 
   return (
     <div className={["app", viewportOnly ? "viewport-only" : "", wideFrame ? "frame-wide" : ""].filter(Boolean).join(" ")}>
@@ -120,12 +120,13 @@ export function App() {
               const next = event.target.value === "battle" ? "battle" : "inspector";
               setMode(next);
               if (next === "battle") {
-                setAssetId("noesis-roster");
                 setWideFrame(true);
                 setViewportOnly(false);
+                setStatus("Preparing battle arena…");
               } else {
                 sceneRef.current?.clearBattleDummy();
                 sceneRef.current?.setBodyFrame(false);
+                setAssetId((current) => current);
               }
             }}
           >
@@ -134,7 +135,7 @@ export function App() {
           </select>
         </label>
         {mode === "battle" ? (
-          <BattlePanel scene={sceneRef.current} ready={battleReady} onStatus={setStatus} />
+          <BattlePanel scene={sceneRef.current} active={mode === "battle"} onStatus={setStatus} />
         ) : (
           <>
         <h1>Zoro inspection</h1>

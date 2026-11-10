@@ -283,7 +283,11 @@ export class BattleEngine {
     return events;
   }
 
-  /** Cancels the active action without damage. Keeps the same actor's turn. */
+  /**
+   * Cancels the active action and keeps the same actor's turn.
+   * Already-applied contact damage is not rolled back.
+   * Pre-contact abort leaves HP unchanged.
+   */
   abortAction(reason: string, actionId?: number): BattleEvent[] {
     const pending = this.state.pending;
     if (!pending || this.state.phase !== "acting") {

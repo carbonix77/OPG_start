@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BattleEngine, makeBalancedFiveVFive } from "./engine";
-import { FIXTURE_MANIFEST, ZORO_MANIFEST, skillOf } from "./manifests";
+import { FIXTURE_MANIFEST, SANJI_MANIFEST, ZORO_MANIFEST, skillOf } from "./manifests";
 
 function duo(seed: number, dummyHp = 60) {
   return new BattleEngine(seed, [
@@ -154,6 +154,26 @@ describe("BattleEngine", () => {
     expect(engine.getState().units.find((unit) => unit.id === "b0")?.alive).toBe(false);
     expect(engine.getState().phase).toBe("ended");
     expect(engine.getState().winner).toBe("alpha");
+  });
+
+  it("keeps Zoro and Sanji manifests independent in one engine", () => {
+    const engine = new BattleEngine(17, [
+      { id: "zoro", manifestId: ZORO_MANIFEST.id, team: "alpha", speed: 20 },
+      { id: "sanji", manifestId: SANJI_MANIFEST.id, team: "alpha", speed: 19 },
+      { id: "enemy-a", manifestId: "synthetic-dummy", team: "bravo", speed: 1, maxHp: 80 },
+      { id: "enemy-b", manifestId: "synthetic-dummy", team: "bravo", speed: 1, maxHp: 80 },
+    ]);
+    expect(engine.currentActorId()).toBe("zoro");
+    engine.resolveFully("zoro", "basic", "enemy-a");
+    if (engine.currentActorId() === "sanji") {
+      engine.resolveFully("sanji", "basic", "enemy-b");
+    }
+    const enemyA = engine.getState().units.find((unit) => unit.id === "enemy-a");
+    const enemyB = engine.getState().units.find((unit) => unit.id === "enemy-b");
+    expect(enemyA && enemyA.hp < enemyA.maxHp).toBe(true);
+    expect(SANJI_MANIFEST.idleClip).toBe("Sanji_1290");
+    expect(SANJI_MANIFEST.skills[0]?.clipId).toBe("Sanji_1300");
+    expect(enemyB?.hp === 80 || (enemyB && enemyB.hp < enemyB.maxHp)).toBe(true);
   });
 
   it("supports selectable 2v2 targets and skips a defeated enemy", () => {
