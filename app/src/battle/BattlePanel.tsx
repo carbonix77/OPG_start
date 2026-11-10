@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BattleEngine,
-  DUMMY_MANIFEST,
+  NAMI_MANIFEST,
   SANJI_MANIFEST,
+  USOPP_MANIFEST,
   ZORO_MANIFEST,
   manifestOf,
   skillOf,
@@ -19,9 +20,10 @@ import { UnitViewRegistry, type UnitViewSpec } from "./unitRegistry";
 const SEED = 21;
 const ZORO_ID = "zoro";
 const SANJI_ID = "sanji";
-const ENEMY_A = "enemy-a";
-const ENEMY_B = "enemy-b";
+const NAMI_ID = "nami";
+const USOPP_ID = "usopp";
 const ALLY_IDS = new Set([ZORO_ID, SANJI_ID]);
+const FIGHTER_IDS = [ZORO_ID, SANJI_ID, NAMI_ID, USOPP_ID] as const;
 
 function formatEvent(event: BattleEvent): string {
   switch (event.type) {
@@ -49,11 +51,25 @@ function formatEvent(event: BattleEvent): string {
 function makeEngine() {
   return new BattleEngine(SEED, [
     { id: ZORO_ID, manifestId: ZORO_MANIFEST.id, team: "alpha", speed: 20, label: "Zoro" },
-    { id: SANJI_ID, manifestId: SANJI_MANIFEST.id, team: "alpha", speed: 18, label: "Sanji (provisional clips)" },
-    { id: ENEMY_A, manifestId: DUMMY_MANIFEST.id, team: "bravo", speed: 9, maxHp: 55, label: "ENEMY-A interim" },
-    { id: ENEMY_B, manifestId: DUMMY_MANIFEST.id, team: "bravo", speed: 8, maxHp: 55, label: "ENEMY-B interim" },
+    { id: SANJI_ID, manifestId: SANJI_MANIFEST.id, team: "alpha", speed: 18, label: "Sanji" },
+    { id: NAMI_ID, manifestId: NAMI_MANIFEST.id, team: "bravo", speed: 12, maxHp: 80, label: "Nami" },
+    { id: USOPP_ID, manifestId: USOPP_MANIFEST.id, team: "bravo", speed: 10, maxHp: 75, label: "Usopp" },
   ]);
 }
+
+const ASSET_BY_UNIT: Record<string, string> = {
+  [ZORO_ID]: "noesis-roster",
+  [SANJI_ID]: "noesis-sanji",
+  [NAMI_ID]: "noesis-nami",
+  [USOPP_ID]: "noesis-usopp",
+};
+
+const MANIFEST_BY_UNIT = {
+  [ZORO_ID]: ZORO_MANIFEST,
+  [SANJI_ID]: SANJI_MANIFEST,
+  [NAMI_ID]: NAMI_MANIFEST,
+  [USOPP_ID]: USOPP_MANIFEST,
+} as const;
 
 export function BattlePanel(props: {
   scene: InspectorScene | null;
@@ -64,7 +80,7 @@ export function BattlePanel(props: {
   const [state, setState] = useState<BattleState>(() => engine.getState());
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
-  const [targetId, setTargetId] = useState(ENEMY_A);
+  const [targetId, setTargetId] = useState(NAMI_ID);
   const [log, setLog] = useState<string[]>([]);
   const [loadNotes, setLoadNotes] = useState<string[]>([]);
   const liveAction = useRef<{ engineId: number; presentToken: number; unitId: string } | null>(null);
@@ -87,8 +103,8 @@ export function BattlePanel(props: {
       [
         { unitId: ZORO_ID, ...TWO_V_TWO_SLOTS[0] },
         { unitId: SANJI_ID, ...TWO_V_TWO_SLOTS[1] },
-        { unitId: ENEMY_A, ...TWO_V_TWO_SLOTS[2] },
-        { unitId: ENEMY_B, ...TWO_V_TWO_SLOTS[3] },
+        { unitId: NAMI_ID, ...TWO_V_TWO_SLOTS[2] },
+        { unitId: USOPP_ID, ...TWO_V_TWO_SLOTS[3] },
       ] as const,
     [],
   );
@@ -126,61 +142,51 @@ export function BattlePanel(props: {
       id: slot.unitId,
       label: engine.getState().units.find((unit) => unit.id === slot.unitId)?.label ?? slot.unitId,
       team: slot.team,
-      kind: slot.unitId === ZORO_ID || slot.unitId === SANJI_ID ? "character" : "synthetic",
+      kind: "character",
       position: slot.position,
     }));
     markers.sync(markerSpecs);
     arenaRef.current = arena;
     markersRef.current = markers;
+    // Landscape side view: teams face across X, camera looks from +Z so all four read in 16:9.
     scene.camera.setTarget(arena.cameraTarget());
-    scene.camera.radius = 520;
-    scene.camera.alpha = Math.PI / 2;
-    scene.camera.beta = 1.05;
+    scene.camera.radius = 640;
+    scene.camera.alpha = 0;
+    scene.camera.beta = 1.12;
 
     const load = async () => {
       const notes: string[] = [];
       const results: CharacterLoadResult[] = [];
-      const zoroAsset = LOCAL_ASSETS.find((item) => item.id === "noesis-roster");
-      const sanjiAsset = LOCAL_ASSETS.find((item) => item.id === "noesis-sanji");
-      if (!zoroAsset || !sanjiAsset) {
-        props.onStatus("Missing Zoro or Sanji local asset entry.");
-        return;
-      }
-      const zoro = new CharacterUnitView(ZORO_ID, scene.scene);
-      const sanji = new CharacterUnitView(SANJI_ID, scene.scene);
-      charactersRef.current.set(ZORO_ID, zoro);
-      charactersRef.current.set(SANJI_ID, sanji);
-      try {
-        const zoroResult = await zoro.load(zoroAsset, previewForAsset("noesis-roster"), slots[0].position);
-        if (cancelled || session !== sessionRef.current) return;
-        results.push(zoroResult);
-        notes.push(
-          `Zoro ${zoroResult.meshes} meshes, ${zoroResult.clips.length} clips, ${zoroResult.loadMs} ms, textures ${zoroResult.textureNotes}${zoroResult.textureError ? ` (${zoroResult.textureError})` : ""}.`,
-        );
-        zoro.playIdle(ZORO_MANIFEST.idleClip);
-        markers.hidePlaceholder(ZORO_ID);
-      } catch (error) {
-        notes.push(`Zoro load failed: ${error instanceof Error ? error.message : String(error)}`);
-      }
-      try {
-        const sanjiResult = await sanji.load(sanjiAsset, previewForAsset("noesis-sanji"), slots[1].position);
-        if (cancelled || session !== sessionRef.current) return;
-        results.push(sanjiResult);
-        notes.push(
-          `Sanji ${sanjiResult.meshes} meshes, clips ${sanjiResult.clips.join(", ")}, ${sanjiResult.loadMs} ms, textures ${sanjiResult.textureNotes}${sanjiResult.textureError ? ` (${sanjiResult.textureError})` : ""}. Idle/basic G1As missing; provisional special stand-ins. Sheets are Sanji-local, not Zoro's atlas.`,
-        );
-        sanji.playIdle(SANJI_MANIFEST.idleClip);
-        markers.hidePlaceholder(SANJI_ID);
-      } catch (error) {
-        notes.push(`Sanji load failed: ${error instanceof Error ? error.message : String(error)}`);
+      for (const [index, unitId] of FIGHTER_IDS.entries()) {
+        const assetId = ASSET_BY_UNIT[unitId];
+        const asset = LOCAL_ASSETS.find((item) => item.id === assetId);
+        const preview = previewForAsset(assetId);
+        if (!asset || !preview) {
+          notes.push(`Missing asset/preview for ${unitId} (${assetId}).`);
+          continue;
+        }
+        const unit = new CharacterUnitView(unitId, scene.scene);
+        charactersRef.current.set(unitId, unit);
+        try {
+          const result = await unit.load(asset, preview, slots[index].position);
+          if (cancelled || session !== sessionRef.current) return;
+          results.push(result);
+          notes.push(
+            `${unitId} ${result.meshes} meshes, clips ${result.clips.join(", ")}, ${result.loadMs} ms, textures ${result.textureNotes}${result.textureError ? ` (${result.textureError})` : ""}.`,
+          );
+          unit.playIdle(MANIFEST_BY_UNIT[unitId].idleClip);
+          markers.hidePlaceholder(unitId);
+        } catch (error) {
+          notes.push(`${unitId} load failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
       if (cancelled || session !== sessionRef.current) return;
       setLoadNotes(notes);
-      setReady(results.length === 2);
+      setReady(results.length === FIGHTER_IDS.length);
       const heap = measureHeapMb();
       const textured = results.filter((row) => row.textured).length;
       props.onStatus(
-        `Loaded ${results.length}/2 fighters (${textured}/2 textured). Heap ${heap ?? "?"} MB.`,
+        `Loaded ${results.length}/${FIGHTER_IDS.length} fighters (${textured}/${results.length} textured). Heap ${heap ?? "?"} MB.`,
       );
     };
     void load();
@@ -315,7 +321,7 @@ export function BattlePanel(props: {
         return;
       }
       setBusy(true);
-      playUnitSkill(unit.id, "dummy-poke", target.id, session, () => {
+      playUnitSkill(unit.id, "basic", target.id, session, () => {
         if (!mounted.current || session !== sessionRef.current) return;
         const follow = engine.currentActorId();
         if (follow && !ALLY_IDS.has(follow) && engine.getState().phase !== "ended") {
@@ -348,24 +354,23 @@ export function BattlePanel(props: {
     engine.reset(SEED);
     setLog([]);
     refresh();
-    charactersRef.current.get(ZORO_ID)?.playIdle(ZORO_MANIFEST.idleClip);
-    charactersRef.current.get(SANJI_ID)?.playIdle(SANJI_MANIFEST.idleClip);
-    markersRef.current?.hidePlaceholder(ZORO_ID);
-    markersRef.current?.hidePlaceholder(SANJI_ID);
+    for (const unitId of FIGHTER_IDS) {
+      charactersRef.current.get(unitId)?.playIdle(MANIFEST_BY_UNIT[unitId].idleClip);
+      markersRef.current?.hidePlaceholder(unitId);
+    }
     for (const unit of engine.getState().units) {
       markersRef.current?.setAlive(unit.id, true);
       charactersRef.current.get(unit.id)?.setEnabled(true);
     }
-    setTargetId(ENEMY_A);
-    props.onStatus("2v2 reset. Zoro and Sanji restored to idle stand-ins.");
+    setTargetId(NAMI_ID);
+    props.onStatus("2v2 reset. Zoro+Sanji vs Nami+Usopp restored to idle.");
   };
 
   return (
     <div className="battle-panel">
       <h1>Battle preview 2v2</h1>
       <p className="note">
-        Player controls the current alive ally (Zoro or Sanji). Sanji clips are provisional specials. Enemies are interim
-        synthetics.
+        Player controls the current alive ally (Zoro or Sanji). Bravo is textured Nami and Usopp on their own rigs.
       </p>
       <div className="battle-hp">
         {state.units.map((unit) => (
@@ -395,13 +400,13 @@ export function BattlePanel(props: {
       </label>
       <div className="row">
         <button type="button" disabled={!canPlayerAct} onClick={runPlayerBasic}>
-          {playerActor === SANJI_ID ? "Sanji basic (provisional)" : playerActor === ZORO_ID ? "Zoro basic" : "Basic Attack"}
+          {playerActor === SANJI_ID ? "Sanji basic" : playerActor === ZORO_ID ? "Zoro basic" : "Basic Attack"}
         </button>
         <button type="button" disabled={busy} onClick={reset}>
           Reset
         </button>
       </div>
-      {!ready ? <p className="note">Loading Zoro and Sanji…</p> : null}
+      {!ready ? <p className="note">Loading Zoro, Sanji, Nami, and Usopp…</p> : null}
       {busy ? <p className="note">Action in progress.</p> : null}
       {loadNotes.map((note) => (
         <p className="note" key={note}>

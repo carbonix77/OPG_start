@@ -82,6 +82,11 @@ export class CharacterUnitView {
     const body: Mesh[] = [];
     for (const mesh of container.meshes) {
       if (!(mesh instanceof Mesh) || mesh.getTotalVertices() <= 0) continue;
+      // Noesis merge helper bones/meshes (driver_*) are not character body parts.
+      if (/(?:^|-)driver_\d+/i.test(mesh.name) || /^driver_\d+/i.test(mesh.name)) {
+        mesh.setEnabled(false);
+        continue;
+      }
       const hit = /(?:Mesh_|submesh_)(\d+)(?:_|$)/.exec(mesh.name);
       const index = hit ? Number(hit[1]) : null;
       if (index !== null && excluded.has(index)) {

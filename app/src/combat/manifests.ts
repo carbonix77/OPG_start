@@ -109,26 +109,26 @@ export const FIXTURE_MANIFEST: CharacterManifest = {
 };
 
 /**
- * Local Sanji specials only. Idle and basic G1As were not in the project copy.
- * Sanji_1290 stands in as a provisional idle. Sanji_1300 stands in as a provisional basic.
+ * Sanji with extracted idle/basic (0000/0500) plus special candidates.
+ * Texture sheets stay Sanji-local under preview/textures/sanji.
  */
 export const SANJI_MANIFEST: CharacterManifest = {
-  id: "sanji-specials",
-  label: "Sanji specials",
+  id: "sanji-roster",
+  label: "Sanji roster",
   maxHp: 95,
   speed: 13,
   assetId: "noesis-sanji",
-  idleClip: "Sanji_1290",
+  idleClip: "Sanji_0000",
   skills: [
     {
       id: "basic",
-      label: "Provisional special-as-basic (Sanji_1300)",
+      label: "Basic Attack",
       damage: 16,
       startup: 0.12,
       contact: 0.35,
       recovery: 0.9,
-      clipId: "Sanji_1300",
-      confidence: "provisional",
+      clipId: "Sanji_0500",
+      confidence: "candidate",
     },
     {
       id: "special",
@@ -143,11 +143,77 @@ export const SANJI_MANIFEST: CharacterManifest = {
   ],
 };
 
+/** Nami idle + basic + special from own G1As. map.json sheet assignment is provisional. */
+export const NAMI_MANIFEST: CharacterManifest = {
+  id: "nami-roster",
+  label: "Nami roster",
+  maxHp: 80,
+  speed: 11,
+  assetId: "noesis-nami",
+  idleClip: "Nami_0000",
+  skills: [
+    {
+      id: "basic",
+      label: "Basic Attack",
+      damage: 12,
+      startup: 0.12,
+      contact: 0.35,
+      recovery: 0.85,
+      clipId: "Nami_NewWorld_0500",
+      confidence: "candidate",
+    },
+    {
+      id: "special",
+      label: "Nami_NewWorld_1300 special candidate",
+      damage: 24,
+      startup: 0.1,
+      contact: 0.4,
+      recovery: 0.9,
+      clipId: "Nami_NewWorld_1300",
+      confidence: "candidate",
+    },
+  ],
+};
+
+/** Usopp idle + basic + special from own G1As. map.json sheet assignment is provisional. */
+export const USOPP_MANIFEST: CharacterManifest = {
+  id: "usopp-roster",
+  label: "Usopp roster",
+  maxHp: 75,
+  speed: 10,
+  assetId: "noesis-usopp",
+  idleClip: "Usopp_0000",
+  skills: [
+    {
+      id: "basic",
+      label: "Basic Attack",
+      damage: 11,
+      startup: 0.12,
+      contact: 0.35,
+      recovery: 0.85,
+      clipId: "Usopp_0500",
+      confidence: "candidate",
+    },
+    {
+      id: "special",
+      label: "Usopp_1300 special candidate",
+      damage: 22,
+      startup: 0.1,
+      contact: 0.4,
+      recovery: 0.9,
+      clipId: "Usopp_1300",
+      confidence: "candidate",
+    },
+  ],
+};
+
 export const MANIFEST_BY_ID: Record<string, CharacterManifest> = {
   [ZORO_MANIFEST.id]: ZORO_MANIFEST,
   [DUMMY_MANIFEST.id]: DUMMY_MANIFEST,
   [FIXTURE_MANIFEST.id]: FIXTURE_MANIFEST,
   [SANJI_MANIFEST.id]: SANJI_MANIFEST,
+  [NAMI_MANIFEST.id]: NAMI_MANIFEST,
+  [USOPP_MANIFEST.id]: USOPP_MANIFEST,
 };
 
 export function manifestOf(id: string): CharacterManifest | null {

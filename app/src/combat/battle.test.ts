@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { meshIndexOf, previewForAsset } from "../inspector/previewConfig";
 import { BattleEngine, makeBalancedFiveVFive } from "./engine";
-import { FIXTURE_MANIFEST, SANJI_MANIFEST, ZORO_MANIFEST, skillOf } from "./manifests";
+import { FIXTURE_MANIFEST, NAMI_MANIFEST, SANJI_MANIFEST, USOPP_MANIFEST, ZORO_MANIFEST, skillOf } from "./manifests";
 
 function duo(seed: number, dummyHp = 60) {
   return new BattleEngine(seed, [
@@ -172,8 +172,8 @@ describe("BattleEngine", () => {
     const enemyA = engine.getState().units.find((unit) => unit.id === "enemy-a");
     const enemyB = engine.getState().units.find((unit) => unit.id === "enemy-b");
     expect(enemyA && enemyA.hp < enemyA.maxHp).toBe(true);
-    expect(SANJI_MANIFEST.idleClip).toBe("Sanji_1290");
-    expect(SANJI_MANIFEST.skills[0]?.clipId).toBe("Sanji_1300");
+    expect(SANJI_MANIFEST.idleClip).toBe("Sanji_0000");
+    expect(SANJI_MANIFEST.skills[0]?.clipId).toBe("Sanji_0500");
     expect(enemyB?.hp === 80 || (enemyB && enemyB.hp < enemyB.maxHp)).toBe(true);
   });
 
@@ -200,10 +200,41 @@ describe("BattleEngine", () => {
     expect(meshIndexOf("unit-sanji-model_0_submesh_8")).toBe(8);
     const sanji = previewForAsset("noesis-sanji");
     const zoro = previewForAsset("noesis-roster");
+    const nami = previewForAsset("noesis-nami");
+    const usopp = previewForAsset("noesis-usopp");
     expect(sanji?.textureDir).toBe("preview/textures/sanji");
     expect(zoro?.textureDir).toBe("preview/textures/zoro");
+    expect(nami?.textureDir).toBe("preview/textures/nami");
+    expect(usopp?.textureDir).toBe("preview/textures/usopp");
     expect(sanji?.textureDir).not.toBe(zoro?.textureDir);
+    expect(nami?.textureDir).not.toBe(usopp?.textureDir);
     expect(sanji?.materialSlotByMesh?.[8]).toBe(8);
+    expect(sanji?.materialSlotByMesh?.[10]).toBe(10); // Noesis-only 871-vert mesh → cloth, not face
+    expect(sanji?.materialSlotByMesh?.[19]).toBe(21); // arms/hands → skin slot, not hair
+    expect(sanji?.materialSlotByMesh?.[21]).toBe(19); // hair mesh → hair slot
+    expect(sanji?.idleClip).toBe("Sanji_0000");
+    expect(nami?.idleClip).toBe("Nami_0000");
+    expect(usopp?.idleClip).toBe("Usopp_0000");
+  });
+
+  it("runs Zoro+Sanji vs Nami+Usopp with independent clips", () => {
+    const engine = new BattleEngine(9, [
+      { id: "zoro", manifestId: ZORO_MANIFEST.id, team: "alpha", speed: 30 },
+      { id: "sanji", manifestId: SANJI_MANIFEST.id, team: "alpha", speed: 25 },
+      { id: "nami", manifestId: NAMI_MANIFEST.id, team: "bravo", speed: 20 },
+      { id: "usopp", manifestId: USOPP_MANIFEST.id, team: "bravo", speed: 15 },
+    ]);
+    expect(engine.currentActorId()).toBe("zoro");
+    engine.resolveFully("zoro", "basic", "nami");
+    expect(engine.currentActorId()).toBe("sanji");
+    engine.resolveFully("sanji", "basic", "usopp");
+    expect(engine.currentActorId()).toBe("nami");
+    engine.resolveFully("nami", "basic", "zoro");
+    expect(engine.currentActorId()).toBe("usopp");
+    engine.resolveFully("usopp", "basic", "sanji");
+    expect(NAMI_MANIFEST.idleClip).toBe("Nami_0000");
+    expect(USOPP_MANIFEST.skills[0]?.clipId).toBe("Usopp_0500");
+    expect(engine.getState().units.find((unit) => unit.id === "nami")!.hp).toBeLessThan(80);
   });
 
   it("supports selectable 2v2 targets and skips a defeated enemy", () => {

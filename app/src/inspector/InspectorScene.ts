@@ -1515,6 +1515,7 @@ export class InspectorScene {
         mesh instanceof Mesh &&
         mesh.name !== "ground" &&
         !mesh.name.startsWith("preview-fx-") &&
+        !/(?:^|-)driver_\d+/i.test(mesh.name) &&
         !this.isPhantomMesh(mesh) &&
         mesh.getTotalVertices() > 0 &&
         !this.isExcluded(mesh),

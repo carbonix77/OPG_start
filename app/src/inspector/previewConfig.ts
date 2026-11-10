@@ -491,29 +491,87 @@ export const ZORO_ROSTER_PREVIEW: PreviewConfig = {
 };
 
 /**
- * Sanji specials only. Idle and basic G1As were missing from the local copy.
- * Texture sheets under preview/textures/sanji are Sanji-local (face/skin/cloth/hair).
- * merge-sanji body meshes are model_0_submesh_N with no Material_N names, so slots are
- * identity mesh-index → map.json keys. Not Zoro's atlas or mesh indices.
+ * Sanji roster with extracted idle/basic. Texture sheets under preview/textures/sanji.
+ * merge-sanji body meshes are model_0_submesh_N with no Material_N names.
+ * materialSlotByMesh was measured from preview/sanji.glb Mesh_N → Material_NN
+ * (NOT identity). Identity mapping swapped hair↔skin and face↔cloth on several meshes.
  */
 export const SANJI_PREVIEW: PreviewConfig = {
   ...FIXTURE_PREVIEW,
-  id: "sanji-specials",
+  id: "sanji-roster",
   textureDir: "preview/textures/sanji",
   normalSheets: ["skin", "cloth", "face", "hair"],
   alphaTestSheets: ["hair"],
   alphaCutOff: 0.25,
   followNodes: FOLLOW_NODE_CANDIDATES,
-  idleClip: "Sanji_1290",
-  attackClip: "Sanji_1300",
+  idleClip: "Sanji_0000",
+  attackClip: "Sanji_0500",
   blendSeconds: 0.28,
-  materialSlotByMesh: Array.from({ length: 32 }, (_, index) => index),
+  // Vertex-matched from preview/sanji.glb Material_NN where counts agree.
+  // Noesis mesh 10 (871 verts) has no GLB twin (GLB mesh 10 is 211/Material_12); use cloth slot 10.
+  materialSlotByMesh: [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 10, 13, 14, 15, 16, 17, 18, 21, 20, 19, 22, 22, 23, 23, 24, 25, 26, 27, 28,
+    29,
+  ],
   sheetByMesh: {},
+  // Noesis merge also emits tiny driver_* helper meshes; keep them out of the draw list.
+  excludedMeshIndices: [],
   behaviors: [
-    { id: "idle", clip: "Sanji_1290", label: "Provisional special used as idle stand-in", confidence: "provisional" },
-    { id: "basic", clip: "Sanji_1300", label: "Provisional special used as basic stand-in", confidence: "provisional" },
-    { id: "special-b", clip: "Sanji_1310", label: "Sanji_1310 candidate", confidence: "candidate" },
+    { id: "idle", clip: "Sanji_0000", label: "Sanji_0000 combat idle candidate", confidence: "candidate" },
+    { id: "basic", clip: "Sanji_0500", label: "Sanji_0500 basic attack candidate", confidence: "candidate" },
+    { id: "special-a", clip: "Sanji_1290", label: "Sanji_1290 special candidate", confidence: "candidate" },
+    { id: "special-b", clip: "Sanji_1300", label: "Sanji_1300 special candidate", confidence: "candidate" },
+    { id: "special-c", clip: "Sanji_1310", label: "Sanji_1310 candidate", confidence: "candidate" },
     { id: "special", clip: "Sanji_1330", label: "Sanji_1330 special candidate", confidence: "candidate" },
+  ],
+};
+
+/**
+ * Nami roster. Noesis merge has no Material_N names; materialSlotByMesh is identity into map.json.
+ * Sheet assignment is provisional (vertex-count heuristic), reversible via map.json only.
+ */
+export const NAMI_PREVIEW: PreviewConfig = {
+  ...FIXTURE_PREVIEW,
+  id: "nami-roster",
+  textureDir: "preview/textures/nami",
+  normalSheets: [],
+  alphaTestSheets: ["hair"],
+  alphaCutOff: 0.25,
+  followNodes: FOLLOW_NODE_CANDIDATES,
+  idleClip: "Nami_0000",
+  attackClip: "Nami_NewWorld_0500",
+  blendSeconds: 0.28,
+  materialSlotByMesh: Array.from({ length: 24 }, (_, index) => index),
+  sheetByMesh: {},
+  excludedMeshIndices: [],
+  behaviors: [
+    { id: "idle", clip: "Nami_0000", label: "Nami_0000 idle candidate", confidence: "candidate" },
+    { id: "basic", clip: "Nami_NewWorld_0500", label: "Nami_NewWorld_0500 basic candidate", confidence: "candidate" },
+    { id: "special", clip: "Nami_NewWorld_1300", label: "Nami_NewWorld_1300 special candidate", confidence: "candidate" },
+  ],
+};
+
+/**
+ * Usopp roster. Same Noesis path as Nami. cloth + cloth01 sheets; map.json is provisional.
+ */
+export const USOPP_PREVIEW: PreviewConfig = {
+  ...FIXTURE_PREVIEW,
+  id: "usopp-roster",
+  textureDir: "preview/textures/usopp",
+  normalSheets: [],
+  alphaTestSheets: ["hair"],
+  alphaCutOff: 0.25,
+  followNodes: FOLLOW_NODE_CANDIDATES,
+  idleClip: "Usopp_0000",
+  attackClip: "Usopp_0500",
+  blendSeconds: 0.28,
+  materialSlotByMesh: Array.from({ length: 37 }, (_, index) => index),
+  sheetByMesh: {},
+  excludedMeshIndices: [],
+  behaviors: [
+    { id: "idle", clip: "Usopp_0000", label: "Usopp_0000 idle candidate", confidence: "candidate" },
+    { id: "basic", clip: "Usopp_0500", label: "Usopp_0500 basic candidate", confidence: "candidate" },
+    { id: "special", clip: "Usopp_1300", label: "Usopp_1300 special candidate", confidence: "candidate" },
   ],
 };
 
@@ -522,6 +580,8 @@ const PREVIEW_REGISTRY: Record<string, PreviewConfig> = {
   "noesis-moves": ZORO_MOVES_PREVIEW,
   "noesis-roster": ZORO_ROSTER_PREVIEW,
   "noesis-sanji": SANJI_PREVIEW,
+  "noesis-nami": NAMI_PREVIEW,
+  "noesis-usopp": USOPP_PREVIEW,
   fixture: FIXTURE_PREVIEW,
 };
 

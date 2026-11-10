@@ -63,9 +63,21 @@ export const LOCAL_ASSETS: LocalAsset[] = [
   },
   {
     id: "noesis-sanji",
-    label: "Noesis glTF Sanji specials",
+    label: "Noesis glTF Sanji roster",
     relativePath: "private-assets/validation/merge-sanji/merged.gltf",
-    note: "Sanji_1290, 1300, 1310, and 1330 only. No local idle or basic G1A was available. Provisional stand-ins only. Not retargeted.",
+    note: "Sanji_0000 idle, Sanji_0500 basic, plus specials 1290/1300/1310/1330 on one skeleton. Not retargeted.",
+  },
+  {
+    id: "noesis-nami",
+    label: "Noesis glTF Nami roster",
+    relativePath: "private-assets/validation/merge-nami/merged.gltf",
+    note: "Nami_0000, Nami_NewWorld_0500, Nami_NewWorld_1300 on one skeleton. Own sheets under preview/textures/nami. Not retargeted.",
+  },
+  {
+    id: "noesis-usopp",
+    label: "Noesis glTF Usopp roster",
+    relativePath: "private-assets/validation/merge-usopp/merged.gltf",
+    note: "Usopp_0000, Usopp_0500, Usopp_1300 on one skeleton. Own sheets under preview/textures/usopp. Not retargeted.",
   },
 ];
 

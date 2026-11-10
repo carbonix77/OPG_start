@@ -3,7 +3,9 @@ export type { UnitSpawn } from "./engine";
 export {
   DUMMY_MANIFEST,
   FIXTURE_MANIFEST,
+  NAMI_MANIFEST,
   SANJI_MANIFEST,
+  USOPP_MANIFEST,
   ZORO_MANIFEST,
   manifestOf,
   skillOf,
