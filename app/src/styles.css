@@ -15,7 +15,7 @@ h1 { font-size: 18px; margin: 0 0 8px; }
 h2 { font-size: 14px; margin: 16px 0 8px; }
 .note { color: #b7b3ac; margin: 0 0 12px; }
 label { display: grid; gap: 4px; margin: 0 0 12px; }
-.row { display: flex; gap: 8px; margin-bottom: 12px; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 button, select { font: inherit; }
 button { background: #3a3d44; color: inherit; border: 1px solid #5c605a; padding: 6px 10px; }
 button:disabled { opacity: 0.4; }

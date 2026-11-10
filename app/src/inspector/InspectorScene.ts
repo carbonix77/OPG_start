@@ -22,7 +22,13 @@ import {
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import { assetUrl, fileUrl, type LocalAsset } from "./assets";
-import { FOLLOW_NODE_CANDIDATES, meshIndexOf, type PreviewConfig } from "./previewConfig";
+import {
+  FOLLOW_NODE_CANDIDATES,
+  meshIndexOf,
+  type CameraKey,
+  type PreviewConfig,
+  type PreviewEffect,
+} from "./previewConfig";
 import { applyTemporaryLook, type TemporaryLook, type TextureNote } from "./textures";
 
 export interface MeshRow {
@@ -83,6 +89,45 @@ export interface HandoffRow {
   poseOffset: [number, number, number] | null;
 }
 
+export interface CinematicFrame {
+  clip: string;
+  normalized: number;
+  alpha: number;
+  beta: number;
+  radius: number;
+  target: [number, number, number];
+  rootLocalZ: number;
+  rootWorldZ: number;
+  effects: string[];
+  swords: Array<{ id: string; visible: number }>;
+}
+
+export interface CinematicMeasure {
+  error: string;
+  seconds: number;
+  frames: number;
+  fps: number;
+  engineFps: number;
+  maxAlphaStep: number;
+  maxBetaStep: number;
+  maxRadiusStep: number;
+  maxTargetStep: number;
+  rootWorldZ: [number, number];
+  rootLocalZ: { attackStart: number; attackEnd: number; idleStart: number };
+  effectWindows: Array<{ id: string; from: number; to: number }>;
+  swordMins: Array<{ id: string; visible: number }>;
+  rows: CinematicFrame[];
+}
+
+interface RuntimeEffect {
+  id: string;
+  kind: PreviewEffect["kind"];
+  t: number;
+  seconds: number;
+  mesh: Mesh;
+  material: StandardMaterial;
+}
+
 export interface MeshCard {
   name: string;
   vertices: number;
@@ -120,8 +165,19 @@ export class InspectorScene {
   private readonly groundMat: StandardMaterial;
   private mouthPreview: { mesh: Mesh; previous: Material | null; material: PBRMaterial; texture: Texture } | null = null;
   private sheetTest: { mesh: Mesh; previous: Material | null; material: PBRMaterial; texture: Texture } | null = null;
+  private readonly canvas: HTMLCanvasElement;
+  private cameraDrive: "orbit" | "timeline" = "orbit";
+  private controlsAttached = true;
+  private timelineArmed = false;
+  private forcedFrame: { clip: "attack" | "idle"; normalized: number } | null = null;
+  private blendStarted = 0;
+  private effectsEnabled = false;
+  private fx: RuntimeEffect[] = [];
+  private measuring: CinematicFrame[] | null = null;
+  private readonly cameraOffset = new Vector3();
 
   constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
     this.engine = new Engine(canvas, true, { preserveDrawingBuffer: true });
     this.scene = new Scene(this.engine);
     this.scene.clearColor = new Color4(0.12, 0.13, 0.15, 1);
@@ -146,8 +202,14 @@ export class InspectorScene {
     this.previewRoot = new TransformNode("previewRoot", this.scene);
     this.engine.runRenderLoop(() => {
       this.applyRecenter();
+      if (this.recenter && this.followNode) this.followNode.computeWorldMatrix(true);
       if (this.visibility === "stacks") this.applyStackVisibility();
-      if (this.follow && this.followNode) {
+      if (this.cameraDrive === "timeline" && this.followNode) {
+        this.applyTimeline();
+        this.applyEffects();
+        const state = this.timelineState();
+        if (this.measuring && state) this.measuring.push(this.readFrame(state.clip, state.normalized));
+      } else if (this.follow && this.followNode) {
         if (this.tight) this.aimPreview();
         else this.camera.target.copyFrom(this.followNode.getAbsolutePosition());
       }
@@ -225,6 +287,7 @@ export class InspectorScene {
   play(name: string, loop: boolean): void {
     const group = this.groups.find((item) => item.name === name);
     if (!group) return;
+    this.leaveTimeline();
     this.clearAttackEnd();
     this.shotRadius = null;
     this.shotOffset = null;
@@ -241,6 +304,7 @@ export class InspectorScene {
   playProvisionalIdle(config: PreviewConfig): string {
     const idle = this.groups.find((item) => item.name === config.idleClip);
     if (!idle) return `This file has no ${config.idleClip}. The clip is not copied onto another skeleton.`;
+    this.leaveTimeline();
     this.clearAttackEnd();
     this.framePhase = "idle";
     this.armPreview(config);
@@ -259,6 +323,7 @@ export class InspectorScene {
     const idle = this.groups.find((item) => item.name === config.idleClip);
     const attack = this.groups.find((item) => item.name === config.attackClip);
     if (!idle || !attack) return `Needs ${config.idleClip} and ${config.attackClip} in this file. Clips are not retargeted.`;
+    this.leaveTimeline();
     this.clearAttackEnd();
     this.attackClip = config.attackClip;
     this.framePhase = "attack";
@@ -279,6 +344,7 @@ export class InspectorScene {
 
   /** Leaves the preview frame and shows every mesh again. */
   stopPreview(): void {
+    this.leaveTimeline();
     this.clearAttackEnd();
     this.tight = false;
     this.follow = false;
@@ -297,6 +363,7 @@ export class InspectorScene {
   scrub(name: string, normalized: number): void {
     const group = this.groups.find((item) => item.name === name);
     if (!group) return;
+    this.leaveTimeline();
     this.clearAttackEnd();
     this.shotRadius = null;
     this.shotOffset = null;
@@ -308,6 +375,7 @@ export class InspectorScene {
 
   /** Stops clips and puts joints back on the bind pose. This is not a verified idle. */
   showBindPose(): void {
+    this.leaveTimeline();
     this.clearAttackEnd();
     this.tight = false;
     for (const group of this.groups) {
@@ -448,6 +516,126 @@ export class InspectorScene {
     this.camera.beta = shot.beta;
     this.aimPreview();
     return shot.label;
+  }
+
+  /**
+   * Plays the configured attack, eases the camera back to idle, and can show preview effects.
+   * Orbit is detached until setCameraDrive("orbit"). Clip keys are not edited.
+   */
+  playCinematic(config: PreviewConfig, effects: boolean): string {
+    const idle = this.groups.find((item) => item.name === config.idleClip);
+    const attack = this.groups.find((item) => item.name === config.attackClip);
+    if (!config.cinematic) return "This character has no cinematic timeline.";
+    if (!idle || !attack) return `Needs ${config.idleClip} and ${config.attackClip} in this file. Clips are not retargeted.`;
+    this.leaveTimeline();
+    this.clearAttackEnd();
+    this.preview = config;
+    this.framePhase = "attack";
+    this.attackClip = config.attackClip;
+    this.shotRadius = null;
+    this.shotOffset = null;
+    this.follow = true;
+    this.tight = false;
+    this.recenter = true;
+    this.effectsEnabled = effects;
+    this.setVisibilityPreset("hide-static", config);
+    this.syncEffects(config);
+    this.timelineArmed = true;
+    this.cameraDrive = "timeline";
+    this.setControls(false);
+    for (const other of this.groups) {
+      if (other !== attack) other.stop();
+    }
+    attack.reset();
+    attack.play(false);
+    this.attackEnd = attack.onAnimationGroupEndObservable.add(() => {
+      this.clearAttackEnd();
+      if (!this.groups.includes(idle)) return;
+      this.framePhase = "idle";
+      this.blendStarted = performance.now();
+      this.blendToIdle(attack, idle, config.blendSeconds);
+    });
+    const blade = this.mouthPreview
+      ? "The mouth mesh is using the stand-in crop. It is not an original texture."
+      : "The mouth mesh keeps the cloth baseline.";
+    const fx = effects
+      ? "Preview slash, flash, and streak are on. They are not an OPPW4 effect."
+      : "Preview effects are off.";
+    return `Cinematic camera is driving ${config.attackClip}, then ${config.idleClip}. Orbit debug is off. ${fx} ${blade}`;
+  }
+
+  /** Stops the timeline from writing the camera and gives orbit back. */
+  setCameraDrive(mode: "orbit" | "timeline"): void {
+    if (mode === "timeline" && !this.timelineArmed) return;
+    this.cameraDrive = mode;
+    this.setControls(mode === "orbit");
+  }
+
+  /** Builds or removes the configured preview effects. They are not game effects. */
+  setPreviewEffects(enabled: boolean, config?: PreviewConfig): void {
+    if (config) this.preview = config;
+    this.effectsEnabled = enabled;
+    if (!enabled) {
+      this.clearEffects();
+      return;
+    }
+    if (this.preview) this.syncEffects(this.preview);
+  }
+
+  /**
+   * Holds one cinematic frame. Attack times use the camera keys.
+   * Idle uses the idle hold, after the attack-end key.
+   */
+  showCinematicFrame(
+    config: PreviewConfig,
+    clip: "attack" | "idle",
+    normalized: number,
+    effects: boolean,
+  ): CinematicFrame | null {
+    const name = clip === "attack" ? config.attackClip : config.idleClip;
+    if (!config.cinematic || !this.groups.some((group) => group.name === name) || !this.followNode) return null;
+    this.preview = config;
+    this.effectsEnabled = effects;
+    this.scrub(name, normalized);
+    this.framePhase = clip;
+    this.forcedFrame = { clip, normalized: clamp01(normalized) };
+    this.blendStarted = clip === "idle" ? performance.now() - config.blendSeconds * 1000 : 0;
+    this.follow = true;
+    this.tight = false;
+    this.recenter = true;
+    this.setVisibilityPreset("hide-static", config);
+    this.syncEffects(config);
+    this.timelineArmed = true;
+    this.cameraDrive = "timeline";
+    this.setControls(false);
+    this.applyRecenter();
+    this.followNode.computeWorldMatrix(true);
+    this.applyTimeline();
+    this.applyEffects();
+    this.scene.render();
+    return this.readFrame(name, this.forcedFrame.normalized);
+  }
+
+  /** Plays the cinematic once and records camera, root, effects, and sword visibility. */
+  measureCinematic(config: PreviewConfig, effects: boolean): Promise<CinematicMeasure> {
+    const attack = this.groups.find((item) => item.name === config.attackClip);
+    if (!config.cinematic || !attack) return Promise.resolve(emptyMeasure("This file has no cinematic clip."));
+    const rows: CinematicFrame[] = [];
+    this.measuring = rows;
+    const started = performance.now();
+    const message = this.playCinematic(config, effects);
+    if (!message.startsWith("Cinematic")) {
+      this.measuring = null;
+      return Promise.resolve(emptyMeasure(message));
+    }
+    const wait = (this.seconds(attack) + config.blendSeconds + 0.35) * 1000;
+    return new Promise((resolve) => {
+      window.setTimeout(() => {
+        const frames = this.measuring ?? [];
+        this.measuring = null;
+        resolve(summarizeMeasure(frames, (performance.now() - started) / 1000, this.engine.getFps()));
+      }, wait);
+    });
   }
 
   /**
@@ -634,7 +822,10 @@ export class InspectorScene {
   }
 
   private bodyMeshes(): Mesh[] {
-    return this.scene.meshes.filter((mesh): mesh is Mesh => mesh instanceof Mesh && mesh.name !== "ground" && mesh.getTotalVertices() > 0);
+    return this.scene.meshes.filter(
+      (mesh): mesh is Mesh =>
+        mesh instanceof Mesh && mesh.name !== "ground" && !mesh.name.startsWith("preview-fx-") && mesh.getTotalVertices() > 0,
+    );
   }
 
   private frameCamera(): void {
@@ -717,6 +908,8 @@ export class InspectorScene {
   }
 
   private disposeLoaded(): void {
+    this.clearEffects();
+    this.leaveTimeline();
     this.clearAttackEnd();
     this.tight = false;
     this.clearMouthPreview();
@@ -888,6 +1081,197 @@ export class InspectorScene {
     this.clearAttackEnd();
     for (const group of this.groups) group.stop();
   }
+
+  private leaveTimeline(): void {
+    this.cameraDrive = "orbit";
+    this.timelineArmed = false;
+    this.forcedFrame = null;
+    this.blendStarted = 0;
+    this.setControls(true);
+    for (const fx of this.fx) fx.mesh.setEnabled(false);
+  }
+
+  private setControls(attached: boolean): void {
+    if (attached === this.controlsAttached) return;
+    this.controlsAttached = attached;
+    if (attached) this.camera.attachControl(this.canvas, true);
+    else this.camera.detachControl();
+  }
+
+  private timelineState(): { clip: string; normalized: number; blend: number } | null {
+    const preview = this.preview;
+    if (!preview?.cinematic) return null;
+    if (this.forcedFrame) {
+      const clip = this.forcedFrame.clip === "attack" ? preview.attackClip : preview.idleClip;
+      return { clip, normalized: this.forcedFrame.normalized, blend: this.forcedFrame.clip === "idle" ? 1 : 0 };
+    }
+    if (this.framePhase === "idle") {
+      const idle = this.groups.find((group) => group.name === preview.idleClip);
+      const blend = this.blendStarted > 0 ? clamp01((performance.now() - this.blendStarted) / (preview.blendSeconds * 1000)) : 1;
+      return { clip: preview.idleClip, normalized: idle ? this.normalizedOf(idle) : 0, blend };
+    }
+    const attack = this.groups.find((group) => group.name === preview.attackClip);
+    if (!attack) return null;
+    return { clip: attack.name, normalized: this.normalizedOf(attack), blend: 0 };
+  }
+
+  private applyTimeline(): void {
+    const timeline = this.preview?.cinematic;
+    const state = this.timelineState();
+    const origin = this.followNode?.getAbsolutePosition();
+    if (!timeline || !state || !origin || timeline.keys.length === 0) return;
+    const from = state.blend > 0 ? this.cameraOnKeys(timeline.keys, 1) : this.cameraOnKeys(timeline.keys, state.normalized);
+    const key = state.blend <= 0 ? from : this.mixKeys(from, timeline.idleHold, smoothstep(state.blend));
+    this.camera.alpha = key.alpha;
+    this.camera.beta = key.beta;
+    this.camera.radius = key.radius;
+    this.camera.target.copyFrom(origin);
+    this.cameraOffset.set(key.targetOffset[0], key.targetOffset[1], key.targetOffset[2]);
+    this.camera.target.addInPlace(this.cameraOffset);
+  }
+
+  private cameraOnKeys(keys: CameraKey[], t: number): CameraKey {
+    if (t <= keys[0].t) return keys[0];
+    const last = keys[keys.length - 1];
+    if (t >= last.t) return last;
+    let index = 1;
+    while (index < keys.length && keys[index].t < t) index += 1;
+    const a = keys[index - 1];
+    const b = keys[index];
+    return this.mixKeys(a, b, smoothstep((t - a.t) / (b.t - a.t)));
+  }
+
+  private mixKeys(a: CameraKey, b: CameraKey, u: number): CameraKey {
+    return {
+      t: a.t,
+      alpha: lerpAngle(a.alpha, b.alpha, u),
+      beta: a.beta + (b.beta - a.beta) * u,
+      radius: a.radius + (b.radius - a.radius) * u,
+      targetOffset: [
+        a.targetOffset[0] + (b.targetOffset[0] - a.targetOffset[0]) * u,
+        a.targetOffset[1] + (b.targetOffset[1] - a.targetOffset[1]) * u,
+        a.targetOffset[2] + (b.targetOffset[2] - a.targetOffset[2]) * u,
+      ],
+    };
+  }
+
+  private applyEffects(): void {
+    const preview = this.preview;
+    const state = this.timelineState();
+    if (!preview?.cinematic || !state || state.clip !== preview.attackClip) {
+      for (const fx of this.fx) fx.mesh.setEnabled(false);
+      return;
+    }
+    const duration = this.clipSeconds(preview.attackClip);
+    for (const fx of this.fx) {
+      const span = duration > 0 ? fx.seconds / duration : 0;
+      const u = span > 0 ? (state.normalized - fx.t) / span : -1;
+      const on = u >= 0 && u <= 1;
+      fx.mesh.setEnabled(on);
+      if (!on) continue;
+      const fade = Math.sin(Math.PI * clamp01(u));
+      fx.material.alpha = 0.2 + 0.8 * fade;
+      if (fx.kind === "flash") fx.mesh.scaling.setAll(0.45 + 0.7 * fade);
+    }
+  }
+
+  private syncEffects(config: PreviewConfig): void {
+    const effects = config.cinematic?.effects ?? [];
+    if (!this.effectsEnabled || effects.length === 0) {
+      this.clearEffects();
+      return;
+    }
+    if (this.fx.length === effects.length && this.fx.every((fx, index) => fx.id === effects[index].id)) return;
+    this.clearEffects();
+    for (const effect of effects) this.fx.push(this.makeEffect(effect));
+  }
+
+  private makeEffect(effect: PreviewEffect): RuntimeEffect {
+    const anchor = new TransformNode(`preview-fx-${effect.id}`, this.scene);
+    anchor.parent = this.scene.getTransformNodeByName(effect.bone) ?? this.followNode;
+    anchor.position.set(effect.offset[0], effect.offset[1], effect.offset[2]);
+    anchor.rotation.set(effect.rotation[0], effect.rotation[1], effect.rotation[2]);
+    const mesh = this.makeEffectMesh(effect);
+    mesh.parent = anchor;
+    mesh.setEnabled(false);
+    const material = new StandardMaterial(`preview-fx-mat-${effect.id}`, this.scene);
+    material.emissiveColor = new Color3(effect.color[0], effect.color[1], effect.color[2]);
+    material.diffuseColor = Color3.Black();
+    material.specularColor = Color3.Black();
+    material.disableLighting = true;
+    material.backFaceCulling = false;
+    material.transparencyMode = 2;
+    material.alpha = 1;
+    mesh.material = material;
+    return { id: effect.id, kind: effect.kind, t: effect.t, seconds: effect.seconds, mesh, material };
+  }
+
+  private makeEffectMesh(effect: PreviewEffect): Mesh {
+    if (effect.kind === "flash") {
+      return MeshBuilder.CreateSphere(`preview-fx-mesh-${effect.id}`, { diameter: effect.size, segments: 10 }, this.scene);
+    }
+    if (effect.kind === "streak") {
+      return MeshBuilder.CreateBox(
+        `preview-fx-mesh-${effect.id}`,
+        { width: effect.size, height: effect.size * 0.06, depth: effect.size * 0.1 },
+        this.scene,
+      );
+    }
+    const path: Vector3[] = [];
+    const count = 12;
+    const span = 1.5;
+    for (let i = 0; i < count; i += 1) {
+      const angle = -span / 2 + (span * i) / (count - 1);
+      path.push(new Vector3(Math.sin(angle) * effect.size, Math.cos(angle) * effect.size * 0.55, 0));
+    }
+    return MeshBuilder.CreateTube(
+      `preview-fx-mesh-${effect.id}`,
+      { path, radius: Math.max(1.5, effect.size * 0.035), tessellation: 8 },
+      this.scene,
+    );
+  }
+
+  private clearEffects(): void {
+    for (const fx of this.fx) {
+      fx.mesh.parent = null;
+      fx.mesh.dispose(false, true);
+    }
+    this.fx = [];
+    for (const node of [...this.scene.transformNodes]) {
+      if (node.name.startsWith("preview-fx-")) node.dispose();
+    }
+  }
+
+  private clipSeconds(name: string): number {
+    const group = this.groups.find((item) => item.name === name);
+    return group ? this.seconds(group) : 0;
+  }
+
+  private normalizedOf(group: AnimationGroup): number {
+    const span = group.to - group.from;
+    if (span === 0) return 0;
+    return clamp01((group.getCurrentFrame() - group.from) / span);
+  }
+
+  private readFrame(clip: string, normalized: number): CinematicFrame {
+    const root = this.followNode;
+    const world = root?.getAbsolutePosition();
+    return {
+      clip,
+      normalized: round(normalized),
+      alpha: round(this.camera.alpha),
+      beta: round(this.camera.beta),
+      radius: round(this.camera.radius),
+      target: [round(this.camera.target.x), round(this.camera.target.y), round(this.camera.target.z)],
+      rootLocalZ: round(root?.position.z ?? 0),
+      rootWorldZ: round(world?.z ?? 0),
+      effects: this.fx.filter((fx) => fx.mesh.isEnabled()).map((fx) => fx.id),
+      swords: (this.preview?.swordGroups ?? []).map((group) => ({
+        id: group.id,
+        visible: group.indices.filter((index) => this.meshByIndex(index)?.isEnabled()).length,
+      })),
+    };
+  }
 }
 
 function distanceToBox(point: Vector3, min: Vector3, max: Vector3): number {
@@ -903,4 +1287,107 @@ function clamp01(value: number): number {
 
 function round(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function smoothstep(value: number): number {
+  const t = clamp01(value);
+  return t * t * (3 - 2 * t);
+}
+
+function lerpAngle(a: number, b: number, t: number): number {
+  let delta = b - a;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  return a + delta * t;
+}
+
+function angleDelta(a: number, b: number): number {
+  return Math.abs(lerpAngle(a, b, 1) - a);
+}
+
+function emptyMeasure(error: string): CinematicMeasure {
+  return {
+    error,
+    seconds: 0,
+    frames: 0,
+    fps: 0,
+    engineFps: 0,
+    maxAlphaStep: 0,
+    maxBetaStep: 0,
+    maxRadiusStep: 0,
+    maxTargetStep: 0,
+    rootWorldZ: [0, 0],
+    rootLocalZ: { attackStart: 0, attackEnd: 0, idleStart: 0 },
+    effectWindows: [],
+    swordMins: [],
+    rows: [],
+  };
+}
+
+function summarizeMeasure(frames: CinematicFrame[], seconds: number, engineFps: number): CinematicMeasure {
+  if (frames.length === 0) return emptyMeasure("No cinematic frames were recorded.");
+  let maxAlpha = 0;
+  let maxBeta = 0;
+  let maxRadius = 0;
+  let maxTarget = 0;
+  let worldMin = Number.POSITIVE_INFINITY;
+  let worldMax = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < frames.length; i += 1) {
+    const frame = frames[i];
+    worldMin = Math.min(worldMin, frame.rootWorldZ);
+    worldMax = Math.max(worldMax, frame.rootWorldZ);
+    if (i === 0) continue;
+    const prev = frames[i - 1];
+    maxAlpha = Math.max(maxAlpha, angleDelta(prev.alpha, frame.alpha));
+    maxBeta = Math.max(maxBeta, Math.abs(frame.beta - prev.beta));
+    maxRadius = Math.max(maxRadius, Math.abs(frame.radius - prev.radius));
+    maxTarget = Math.max(
+      maxTarget,
+      Math.hypot(frame.target[0] - prev.target[0], frame.target[1] - prev.target[1], frame.target[2] - prev.target[2]),
+    );
+  }
+  const attackClip = frames[0].clip;
+  const attack = frames.filter((frame) => frame.clip === attackClip);
+  const idle = frames.filter((frame) => frame.clip !== attackClip);
+  const marks = [0, 0.08, 0.12, 0.22, 0.35, 0.55, 0.75, 0.92, 1];
+  const rows = marks
+    .map((mark) => attack.reduce((best, frame) => (Math.abs(frame.normalized - mark) < Math.abs(best.normalized - mark) ? frame : best)))
+    .filter((frame, index, list) => list.findIndex((item) => item.normalized === frame.normalized && item.clip === frame.clip) === index);
+  if (idle[0]) rows.push(idle[0]);
+  if (idle.length > 1) rows.push(idle[idle.length - 1]);
+  const windows = new Map<string, { from: number; to: number }>();
+  for (const frame of attack) {
+    for (const id of frame.effects) {
+      const hit = windows.get(id);
+      if (!hit) windows.set(id, { from: frame.normalized, to: frame.normalized });
+      else hit.to = frame.normalized;
+    }
+  }
+  const swordMins = new Map<string, number>();
+  for (const frame of frames) {
+    for (const sword of frame.swords) {
+      const hit = swordMins.get(sword.id);
+      swordMins.set(sword.id, hit === undefined ? sword.visible : Math.min(hit, sword.visible));
+    }
+  }
+  return {
+    error: "",
+    seconds: round(seconds),
+    frames: frames.length,
+    fps: round(frames.length / Math.max(seconds, 0.001)),
+    engineFps: round(engineFps),
+    maxAlphaStep: round(maxAlpha),
+    maxBetaStep: round(maxBeta),
+    maxRadiusStep: round(maxRadius),
+    maxTargetStep: round(maxTarget),
+    rootWorldZ: [round(worldMin), round(worldMax)],
+    rootLocalZ: {
+      attackStart: attack[0]?.rootLocalZ ?? 0,
+      attackEnd: attack[attack.length - 1]?.rootLocalZ ?? 0,
+      idleStart: idle[0]?.rootLocalZ ?? 0,
+    },
+    effectWindows: [...windows.entries()].map(([id, window]) => ({ id, from: window.from, to: window.to })),
+    swordMins: [...swordMins.entries()].map(([id, visible]) => ({ id, visible })),
+    rows,
+  };
 }

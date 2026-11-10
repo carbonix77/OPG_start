@@ -34,6 +34,8 @@ export function App() {
   const [preset, setPreset] = useState<VisibilityPreset>("all");
   const [stage, setStage] = useState(false);
   const [mouthPreview, setMouthPreview] = useState(false);
+  const [previewEffects, setPreviewEffects] = useState(false);
+  const [orbitDebug, setOrbitDebug] = useState(false);
   const [viewportOnly, setViewportOnly] = useState(false);
   const [wideFrame, setWideFrame] = useState(false);
   const [textureNotes, setTextureNotes] = useState<TextureNote[]>([]);
@@ -74,6 +76,8 @@ export function App() {
     setPreset("all");
     setStage(false);
     setMouthPreview(false);
+    setPreviewEffects(false);
+    setOrbitDebug(false);
     setPreviewNote("");
     const config = previewForAsset(assetId);
     inspector.setPreviewConfig(config);
@@ -297,6 +301,59 @@ export function App() {
             }}
           />
           Preview blade crop on the mouth mesh. Not an original texture.
+        </label>
+        <div className="row">
+          <button
+            type="button"
+            onClick={() => {
+              setFollow(true);
+              setPreset("hide-static");
+              setTextures(true);
+              setWideFrame(true);
+              setRecenter(true);
+              setStage(true);
+              setOrbitDebug(false);
+              const useCrop = mouthPreview;
+              const useFx = previewEffects;
+              sceneRef.current?.setRecenter(true);
+              sceneRef.current?.setStage(true, preview);
+              void (async () => {
+                const notes = await sceneRef.current?.setTemporaryTextures(true, preview);
+                if (sceneRef.current && notes) setTextureNotes(notes);
+                if (useCrop) {
+                  setSheet("");
+                  setSheetNote(sceneRef.current?.setMouthPreview(true, preview) ?? "");
+                }
+                setPreviewNote(sceneRef.current?.playCinematic(preview, useFx) ?? "");
+              })();
+            }}
+          >
+            Cinematic
+          </button>
+        </div>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={previewEffects}
+            onChange={(event) => {
+              const enabled = event.target.checked;
+              setPreviewEffects(enabled);
+              sceneRef.current?.setPreviewEffects(enabled, preview);
+            }}
+          />
+          Preview effects. Slash, flash, and streak are stand-ins, not an OPPW4 effect.
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={orbitDebug}
+            onChange={(event) => {
+              const enabled = event.target.checked;
+              setOrbitDebug(enabled);
+              sceneRef.current?.setCameraDrive(enabled ? "orbit" : "timeline");
+            }}
+          />
+          Orbit camera. Debug. The timeline stops driving the view.
         </label>
         <div className="row">
           {preview.shots.map((shot) => (

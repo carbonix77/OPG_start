@@ -38,11 +38,16 @@ Those glTF files also need their `.bin` next to them. If a selector fails, the m
 - "Sword view" defaults to show all. It can hide meshes 3, 22, 23, and 24. The coincident-shell choice is an experimental diagnostic and stays off until it is selected.
 - "Preview blade crop" puts a cropped sample of an existing sheet on the mouth mesh. The sheet test next to it is the comparison. Neither one is an original texture.
 - "Preview stage" matches the ground to the background and pulls the ground edge out of frame. The shots are idle, anticipation, strike, and recovery. This is not a game effect.
+- "Cinematic" plays the attack clip from the character config, moves the camera through that config's keys, then eases to the idle hold while the idle clip blends in. "Orbit camera" gives the inspector orbit back. "Preview effects" shows the config's slash, flash, and streak. Those are stand-ins, not an OPPW4 effect. The mouth crop stays off unless its own checkbox is on. The label on that checkbox says it is not an original texture.
 - "Preview recenter" cancels the follow node's world X and Z on a preview parent. The clip keys stay as they are. Loop still restarts that motion when it is on.
 - "Viewport only" hides the side panel and the status strip so a capture is the 3D view.
 - "Provisional idle" loops `Zoro_0000` only when that clip is already in the loaded file. "1330, then idle" plays `Zoro_1330` once, crossfades for about 0.28 seconds, and returns to that loop. Both use the file's own skeleton. The buttons also turn on the temporary textures and a 16:9 frame. On a Noesis mesh, the sheet comes from the GLB material slot of the same mesh index. Vertex counts matched. That is still the reconstructed map. The preview hides the tiny world-static meshes and fits meshes whose boxes come near the follow node, including long blades. The fit factor is 1.35. Show all is still available. The clips are not retargeted. Clip names, sword stacks, and the stage lights live in `app/src/inspector/previewConfig.ts`.
 
 `Zoro_1320`, `Zoro_1322`, and `Zoro_1324` stay separate clips. The page does not play them on three bodies.
+
+## Another character
+
+`InspectorScene` does not contain a character name, a clip name, or a mesh index. `previewForAsset` returns a `PreviewConfig`. A second character adds its own object: texture directory, clip names, material slots, sword groups, camera keys, and effect markers. `previewForAsset` then returns that object for the new asset id. The cinematic player reads `cinematic.keys` and `cinematic.effects`. A config with `cinematic: null` has nothing for that button to play. No scene method needs a new branch for that character.
 
 The page also puts the scene on `window.__inspector` so a local check can call `scrub` and `sampleMeshTravel`. That handle is not a game API.
 

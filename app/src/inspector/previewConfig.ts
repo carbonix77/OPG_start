@@ -27,6 +27,40 @@ export interface PreviewShot {
   targetOffset: [number, number, number];
 }
 
+export interface CameraKey {
+  /** Normalized time on the attack clip. Idle hold ignores this. */
+  t: number;
+  alpha: number;
+  beta: number;
+  radius: number;
+  targetOffset: [number, number, number];
+}
+
+export interface PreviewEffect {
+  id: string;
+  /** Normalized time on the attack clip when the effect appears. */
+  t: number;
+  /** How long it stays up, in seconds. */
+  seconds: number;
+  kind: "arc" | "flash" | "streak";
+  /** Bone the effect follows. The scene falls back to the follow node. */
+  bone: string;
+  offset: [number, number, number];
+  rotation: [number, number, number];
+  /** Arc radius, flash diameter, or streak length. */
+  size: number;
+  color: [number, number, number];
+}
+
+export interface CinematicTimeline {
+  keys: CameraKey[];
+  /** Camera eased in after the attack, over blendSeconds. */
+  idleHold: CameraKey;
+  effects: PreviewEffect[];
+  /** Normalized attack times for a contact sheet. Playback does not read this. */
+  contactTimes: number[];
+}
+
 export interface PreviewBlade {
   /** Sheet sampled by a preview UV crop. Not an original assignment. */
   sheet: string;
@@ -89,6 +123,8 @@ export interface PreviewConfig {
     rimDirection: [number, number, number];
   };
   shots: PreviewShot[];
+  /** Null when this character has no cinematic pass. */
+  cinematic: CinematicTimeline | null;
 }
 
 export const FOLLOW_NODE_CANDIDATES = ["SK_Skeleton", "bone_1", "bone_0"];
@@ -203,6 +239,56 @@ export const ZORO_PREVIEW: PreviewConfig = {
       targetOffset: [0, 10, 0],
     },
   ],
+  cinematic: {
+    keys: [
+      { t: 0, alpha: Math.PI / 2, beta: 1.18, radius: 377, targetOffset: [0, 22, 0] },
+      { t: 0.08, alpha: Math.PI / 2 + 0.12, beta: 1.1, radius: 327, targetOffset: [0, 22, 0] },
+      { t: 0.12, alpha: Math.PI / 2 + 0.2, beta: 1.05, radius: 349, targetOffset: [0, 22, 0] },
+      { t: 0.22, alpha: Math.PI / 2 + 0.32, beta: 1.14, radius: 315, targetOffset: [0, 22, 0] },
+      { t: 0.35, alpha: Math.PI / 2 + 0.42, beta: 1.18, radius: 320, targetOffset: [0, 22, 0] },
+      { t: 0.55, alpha: Math.PI / 2 + 0.2, beta: 1.16, radius: 297, targetOffset: [0, 22, 0] },
+      { t: 0.75, alpha: Math.PI / 2 + 0.04, beta: 1.12, radius: 434, targetOffset: [0, 22, 0] },
+      { t: 0.92, alpha: Math.PI / 2 - 0.12, beta: 1.16, radius: 338, targetOffset: [0, 22, 0] },
+      { t: 1, alpha: Math.PI / 2, beta: 1.18, radius: 458, targetOffset: [0, 22, 0] },
+    ],
+    idleHold: { t: 0, alpha: Math.PI / 2, beta: 1.2, radius: 460, targetOffset: [0, 22, 0] },
+    effects: [
+      {
+        id: "release-streak",
+        t: 0.05,
+        seconds: 0.35,
+        kind: "streak",
+        bone: "SK_Head",
+        offset: [12, 0, 8],
+        rotation: [0, 0.6, 0.8],
+        size: 42,
+        color: [0.82, 0.9, 1],
+      },
+      {
+        id: "slash-arc",
+        t: 0.14,
+        seconds: 1.7,
+        kind: "arc",
+        bone: "SK_Skeleton",
+        offset: [0, 24, 18],
+        rotation: [Math.PI / 2, 0.3, 0.9],
+        size: 86,
+        color: [0.72, 0.86, 1],
+      },
+      {
+        id: "strike-flash",
+        t: 0.33,
+        seconds: 0.22,
+        kind: "flash",
+        bone: "0x43b3b303",
+        offset: [28, 2, 0],
+        rotation: [0, 0, 0],
+        size: 12,
+        color: [1, 0.93, 0.78],
+      },
+    ],
+    contactTimes: [0, 0.08, 0.12, 0.22, 0.35, 0.55, 0.75, 0.92, 1],
+  },
 };
 
 export function previewForAsset(_assetId: string): PreviewConfig {
