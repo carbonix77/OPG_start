@@ -37,6 +37,18 @@ export const LOCAL_ASSETS: LocalAsset[] = [
     relativePath: "private-assets/validation/merge-quiet/merged.gltf",
     note: "Unnamed Zoro_0165, Zoro_0006, and Zoro_0003. Small reconstructed root travel. Not verified idle or hit.",
   },
+  {
+    id: "noesis-present",
+    label: "Noesis glTF provisional idle and 1330",
+    relativePath: "private-assets/validation/merge-present/merged.gltf",
+    note: "Zoro_0000 and Zoro_1330 on SK_Skeleton. Provisional preview only. Untextured. Not retargeted onto the GLB.",
+  },
+  {
+    id: "noesis-next",
+    label: "Noesis glTF next unnamed clips",
+    relativePath: "private-assets/validation/merge-next/merged.gltf",
+    note: "Unnamed Zoro_0050, 0071, 0604, and 1650. Not verified idle or hit.",
+  },
 ];
 
 export function assetUrl(relativePath: string): { rootUrl: string; fileName: string } {

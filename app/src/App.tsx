@@ -35,6 +35,7 @@ export function App() {
   const [textureNotes, setTextureNotes] = useState<TextureNote[]>([]);
   const [samples, setSamples] = useState<MeshSample[]>([]);
   const [status, setStatus] = useState("Loading");
+  const [previewNote, setPreviewNote] = useState("");
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -67,6 +68,7 @@ export function App() {
     setSheet("");
     setSheetNote("");
     setPreset("all");
+    setPreviewNote("");
     void inspector.load(asset).then((next) => {
       if (cancel) return;
       setFacts(next);
@@ -119,6 +121,29 @@ export function App() {
             Bind pose
           </button>
         </div>
+        <div className="row">
+          <button
+            type="button"
+            onClick={() => {
+              setFollow(true);
+              setPreset("hide-static");
+              setPreviewNote(sceneRef.current?.playProvisionalIdle() ?? "");
+            }}
+          >
+            Provisional idle
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setFollow(true);
+              setPreset("hide-static");
+              setPreviewNote(sceneRef.current?.playAttackThenIdle() ?? "");
+            }}
+          >
+            1330, then idle
+          </button>
+        </div>
+        {previewNote ? <p className="note">{previewNote}</p> : null}
         <label className="check">
           <input type="checkbox" checked={loop} onChange={(event) => setLoop(event.target.checked)} />
           Loop. Root motion replays from the start.

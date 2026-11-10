@@ -11,12 +11,14 @@ import {
   Scene,
   SceneLoader,
   SkeletonViewer,
+  StandardMaterial,
   Texture,
   TransformNode,
   Vector3,
   type AbstractMesh,
   type AnimationGroup,
   type Material,
+  type Observer,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import { assetUrl, fileUrl, type LocalAsset } from "./assets";
@@ -90,6 +92,8 @@ export class InspectorScene {
   private temporary: TemporaryLook | null = null;
   private readonly previewRoot: TransformNode;
   private recenter = false;
+  private tight = false;
+  private attackEnd: Observer<AnimationGroup> | null = null;
   private sheetTest: { mesh: Mesh; previous: Material | null; material: PBRMaterial; texture: Texture } | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -107,17 +111,17 @@ export class InspectorScene {
     sun.intensity = 0.8;
     const ground = MeshBuilder.CreateGround("ground", { width: 4000, height: 4000 }, this.scene);
     ground.position.y = 0;
-    const mat = ground.material;
-    if (mat) {
-      mat.alpha = 1;
-    }
+    const groundMat = new StandardMaterial("ground-mat", this.scene);
+    groundMat.diffuseColor = new Color3(0.16, 0.17, 0.19);
+    groundMat.specularColor = Color3.Black();
+    ground.material = groundMat;
     ground.receiveShadows = false;
     this.previewRoot = new TransformNode("previewRoot", this.scene);
     this.engine.runRenderLoop(() => {
       this.applyRecenter();
       if (this.follow && this.followNode) {
-        const p = this.followNode.getAbsolutePosition();
-        this.camera.target.copyFrom(p);
+        if (this.tight) this.aimPreview();
+        else this.camera.target.copyFrom(this.followNode.getAbsolutePosition());
       }
       this.scene.render();
     });
@@ -185,10 +189,60 @@ export class InspectorScene {
   play(name: string, loop: boolean): void {
     const group = this.groups.find((item) => item.name === name);
     if (!group) return;
+    this.clearAttackEnd();
     for (const other of this.groups) {
       if (other !== group) other.stop();
     }
     group.play(loop);
+  }
+
+  /**
+   * Loops Zoro_0000 on the skeleton already in this file.
+   * Provisional preview idle. Does not retarget another file's clip.
+   */
+  playProvisionalIdle(): string {
+    const idle = this.groups.find((item) => item.name === "Zoro_0000");
+    if (!idle) return "This file has no Zoro_0000. The clip is not copied onto another skeleton.";
+    this.clearAttackEnd();
+    this.armPreview();
+    for (const other of this.groups) {
+      if (other !== idle) other.stop();
+    }
+    idle.play(true);
+    return "Zoro_0000 is looping on this file's skeleton. Provisional preview idle, not a verified idle.";
+  }
+
+  /**
+   * Plays Zoro_1330 once, then loops Zoro_0000. Both must already be in this file.
+   */
+  playAttackThenIdle(): string {
+    const idle = this.groups.find((item) => item.name === "Zoro_0000");
+    const attack = this.groups.find((item) => item.name === "Zoro_1330");
+    if (!idle || !attack) return "Needs Zoro_0000 and Zoro_1330 in this file. Clips are not retargeted.";
+    this.clearAttackEnd();
+    this.armPreview();
+    for (const other of this.groups) {
+      if (other !== attack) other.stop();
+    }
+    attack.reset();
+    attack.play(false);
+    this.attackEnd = attack.onAnimationGroupEndObservable.add(() => {
+      this.clearAttackEnd();
+      if (!this.groups.includes(idle)) return;
+      for (const other of this.groups) {
+        if (other !== idle) other.stop();
+      }
+      idle.play(true);
+    });
+    return "Zoro_1330 plays once on this skeleton, then Zoro_0000 loops. The clip keys are unchanged.";
+  }
+
+  /** Leaves the preview frame and shows every mesh again. */
+  stopPreview(): void {
+    this.clearAttackEnd();
+    this.tight = false;
+    this.follow = false;
+    this.setVisibilityPreset("all");
   }
 
   pause(): void {
@@ -202,6 +256,7 @@ export class InspectorScene {
   scrub(name: string, normalized: number): void {
     const group = this.groups.find((item) => item.name === name);
     if (!group) return;
+    this.clearAttackEnd();
     this.hold(group);
     const frame = group.from + clamp01(normalized) * (group.to - group.from);
     group.goToFrame(frame);
@@ -210,6 +265,8 @@ export class InspectorScene {
 
   /** Stops clips and puts joints back on the bind pose. This is not a verified idle. */
   showBindPose(): void {
+    this.clearAttackEnd();
+    this.tight = false;
     for (const group of this.groups) {
       if (group.isStarted) {
         group.reset();
@@ -265,8 +322,7 @@ export class InspectorScene {
       this.setVisibleMeshes(null);
       return;
     }
-    const hide = new Set(["Mesh_3", "Mesh_22", "Mesh_23", "Mesh_24"]);
-    this.setVisibleMeshes(this.bodyMeshes().map((mesh) => mesh.name).filter((name) => !hide.has(name)));
+    this.setVisibleMeshes(this.bodyMeshes().map((mesh) => mesh.name).filter((name) => !isWorldStatic(name)));
   }
 
   setSkeletonVisible(enabled: boolean): void {
@@ -494,6 +550,8 @@ export class InspectorScene {
   }
 
   private disposeLoaded(): void {
+    this.clearAttackEnd();
+    this.tight = false;
     this.clearSheetTest();
     this.previewRoot.position.setAll(0);
     this.temporary?.restore();
@@ -511,16 +569,68 @@ export class InspectorScene {
     }
     for (const skeleton of [...this.scene.skeletons]) skeleton.dispose();
     for (const material of [...this.scene.materials]) {
-      if (material.name !== "default material") material.dispose();
+      if (material.name !== "default material" && material.name !== "ground-mat") material.dispose();
     }
     for (const node of [...this.scene.transformNodes]) {
       if (node !== this.previewRoot) node.dispose();
     }
   }
 
+  private armPreview(): void {
+    this.setVisibilityPreset("hide-static");
+    this.follow = true;
+    this.tight = true;
+    this.camera.alpha = Math.PI / 2;
+    this.camera.beta = 1.15;
+    this.aimPreview();
+  }
+
+  /** Frames the body. Long blades are left out of the fit so they do not push the character small. */
+  private aimPreview(): void {
+    const origin = this.followNode?.getAbsolutePosition();
+    if (!origin) return;
+    this.refreshBodyBounds();
+    const acc = Vector3.Zero();
+    let count = 0;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    for (const mesh of this.bodyMeshes()) {
+      if (!mesh.isEnabled()) continue;
+      const box = mesh.getBoundingInfo().boundingBox;
+      const extent = box.extendSizeWorld;
+      const longest = Math.max(extent.x, extent.y, extent.z) * 2;
+      if (longest > 130) continue;
+      if (Vector3.Distance(box.centerWorld, origin) > 180) continue;
+      acc.addInPlace(box.centerWorld);
+      count += 1;
+      minY = Math.min(minY, box.minimumWorld.y);
+      maxY = Math.max(maxY, box.maximumWorld.y);
+    }
+    if (count === 0) {
+      this.camera.target.copyFrom(origin);
+      return;
+    }
+    this.camera.target.copyFrom(acc.scaleInPlace(1 / count));
+    const height = maxY - minY;
+    if (height > 40 && height < 400) this.camera.radius = Math.min(480, Math.max(180, height * 1.15));
+  }
+
+  private clearAttackEnd(): void {
+    const observer = this.attackEnd;
+    this.attackEnd = null;
+    if (!observer) return;
+    const attack = this.groups.find((item) => item.name === "Zoro_1330");
+    attack?.onAnimationGroupEndObservable.remove(observer);
+  }
+
   private stop(): void {
+    this.clearAttackEnd();
     for (const group of this.groups) group.stop();
   }
+}
+
+function isWorldStatic(name: string): boolean {
+  return name === "Mesh_3" || name === "Mesh_22" || name === "Mesh_23" || name === "Mesh_24" || /_(0003|0022|0023|0024)$/.test(name);
 }
 
 function clamp01(value: number): number {
