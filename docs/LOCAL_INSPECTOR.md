@@ -29,6 +29,7 @@ Those glTF files also need their `.bin` next to them. If a selector fails, the m
 - Orbit the camera. "Camera follows the root" moves only the camera. The clip still contains its root motion.
 - Draw the skeleton, and toggle individual meshes. Toggles are not saved.
 - "Sample mesh travel" lists offset from `SK_Skeleton` or `bone_1` at 0, 0.35, 0.65, and 1. The travel number is relative to that node, so root motion is not counted as mesh travel.
+- "Temporary textures" assigns `preview/textures/zoro/map.json` onto materials named `Material_N`. That map is reconstructed. `weapon00` through `weapon04` are marked guessed. Body sheets also get their `_n` normal. Sword sheets have no matching normal. This is not the game shader. UV `invertY` is false. Normals set `invertNormalMapY` because Babylon reads DirectX-style normals and these PNGs are the OpenGL-style files the older viewer uses.
 
 `Zoro_1320`, `Zoro_1322`, and `Zoro_1324` stay separate clips. The page does not play them on three bodies.
 

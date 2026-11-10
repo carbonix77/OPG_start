@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LOCAL_ASSETS } from "./inspector/assets";
 import { InspectorScene, type MeshSample, type SceneFacts } from "./inspector/InspectorScene";
+import type { TextureNote } from "./inspector/textures";
 
 const EMPTY: SceneFacts = {
   assetId: "",
@@ -25,6 +26,8 @@ export function App() {
   const [scrub, setScrub] = useState(0);
   const [follow, setFollow] = useState(false);
   const [bones, setBones] = useState(false);
+  const [textures, setTextures] = useState(false);
+  const [textureNotes, setTextureNotes] = useState<TextureNote[]>([]);
   const [samples, setSamples] = useState<MeshSample[]>([]);
   const [status, setStatus] = useState("Loading");
 
@@ -50,6 +53,8 @@ export function App() {
     let cancel = false;
     setStatus(`Loading ${asset.label}`);
     setSamples([]);
+    setTextures(false);
+    setTextureNotes([]);
     void inspector.load(asset).then((next) => {
       if (cancel) return;
       setFacts(next);
@@ -147,6 +152,28 @@ export function App() {
           />
           Camera follows the root. Motion stays in the clip.
         </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={textures}
+            onChange={(event) => {
+              const enabled = event.target.checked;
+              setTextures(enabled);
+              void sceneRef.current?.setTemporaryTextures(enabled).then((notes) => {
+                if (sceneRef.current) setTextureNotes(notes);
+              });
+            }}
+          />
+          Temporary textures. Sword sheets are guessed.
+        </label>
+        {textureNotes.length > 0 ? (
+          <p className="note">
+            {textureNotes
+              .filter((note) => note.sheet)
+              .map((note) => `${note.material} ${note.sheet}${note.guessed ? " guessed" : ""}${note.normal ? " +n" : ""}`)
+              .join(" · ")}
+          </p>
+        ) : null}
         <label className="check">
           <input
             type="checkbox"

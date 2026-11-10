@@ -33,3 +33,8 @@ export function assetUrl(relativePath: string): { rootUrl: string; fileName: str
   const slash = url.lastIndexOf("/");
   return { rootUrl: url.slice(0, slash + 1), fileName: url.slice(slash + 1) };
 }
+
+export function fileUrl(relativePath: string): string {
+  const { rootUrl, fileName } = assetUrl(relativePath);
+  return rootUrl + fileName;
+}

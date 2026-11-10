@@ -17,6 +17,7 @@ import {
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
 import { assetUrl, type LocalAsset } from "./assets";
+import { applyTemporaryLook, type TemporaryLook, type TextureNote } from "./textures";
 
 export interface MeshRow {
   name: string;
@@ -55,6 +56,24 @@ export interface SceneFacts {
 
 const SAMPLE_TIMES = [0, 0.35, 0.65, 1];
 
+const VIEWS: Record<string, { alpha: number; beta: number }> = {
+  front: { alpha: Math.PI / 2, beta: 1.15 },
+  back: { alpha: -Math.PI / 2, beta: 1.15 },
+  left: { alpha: Math.PI, beta: 1.15 },
+  right: { alpha: 0, beta: 1.15 },
+  three: { alpha: Math.PI / 2 + 0.65, beta: 1.05 },
+};
+
+export interface MeshCard {
+  name: string;
+  vertices: number;
+  material: string;
+  longest: number;
+  size: [number, number, number];
+  center: [number, number, number];
+  headVerts: number;
+}
+
 export class InspectorScene {
   readonly engine: Engine;
   readonly scene: Scene;
@@ -65,6 +84,7 @@ export class InspectorScene {
   private followNode: TransformNode | null = null;
   private assetId = "";
   private loadToken = 0;
+  private temporary: TemporaryLook | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.engine = new Engine(canvas, true, { preserveDrawingBuffer: true });
@@ -181,7 +201,12 @@ export class InspectorScene {
 
   /** Stops clips and puts joints back on the bind pose. This is not a verified idle. */
   showBindPose(): void {
-    for (const group of this.groups) group.stop();
+    for (const group of this.groups) {
+      if (group.isStarted) {
+        group.reset();
+        group.stop();
+      }
+    }
     for (const skeleton of this.scene.skeletons) skeleton.returnToRest();
     this.refreshBodyBounds();
     if (!this.follow) this.frameCamera();
@@ -205,6 +230,68 @@ export class InspectorScene {
   setMeshEnabled(name: string, enabled: boolean): void {
     const mesh = this.scene.getMeshByName(name);
     if (mesh) mesh.setEnabled(enabled);
+  }
+
+  /** null shows every loaded mesh again. A list shows only those meshes. */
+  setVisibleMeshes(names: string[] | null): void {
+    const allow = names ? new Set(names) : null;
+    for (const mesh of this.bodyMeshes()) mesh.setEnabled(allow === null || allow.has(mesh.name));
+  }
+
+  /**
+   * Frames the character, then orbits to a named side.
+   * Turns camera follow off so the orbit stays put.
+   */
+  setView(view: string): void {
+    this.follow = false;
+    this.frameCamera();
+    const preset = VIEWS[view] ?? VIEWS.front;
+    this.camera.alpha = preset.alpha;
+    this.camera.beta = preset.beta;
+    this.scene.render();
+  }
+
+  /** Reconstructed albedo/normal assignment. Restores the loaded materials when disabled. */
+  async setTemporaryTextures(enabled: boolean): Promise<TextureNote[]> {
+    this.temporary?.restore();
+    this.temporary = null;
+    if (!enabled) return [];
+    this.temporary = await applyTemporaryLook(this.scene, this.bodyMeshes());
+    return this.temporary.notes;
+  }
+
+  /** Bounds and how many skinned vertices sit in the head box. Does not hide meshes. */
+  meshCards(): MeshCard[] {
+    const origin = this.followNode?.getAbsolutePosition() ?? Vector3.Zero();
+    return this.bodyMeshes().map((mesh) => {
+      mesh.computeWorldMatrix(true);
+      mesh.refreshBoundingInfo(true, false);
+      const box = mesh.getBoundingInfo().boundingBox;
+      const size = box.maximumWorld.subtract(box.minimumWorld);
+      const center = box.centerWorld.subtract(origin);
+      const positions = mesh.getPositionData(true, false);
+      const world = mesh.getWorldMatrix();
+      let headVerts = 0;
+      if (positions) {
+        const point = new Vector3();
+        for (let i = 0; i < positions.length; i += 3) {
+          Vector3.TransformCoordinatesFromFloatsToRef(positions[i], positions[i + 1], positions[i + 2], world, point);
+          const x = point.x - origin.x;
+          const y = point.y - origin.y;
+          const z = point.z - origin.z;
+          if (y > 52 && y < 78 && Math.abs(x) < 18 && z > 8 && z < 45) headVerts += 1;
+        }
+      }
+      return {
+        name: mesh.name,
+        vertices: mesh.getTotalVertices(),
+        material: mesh.material?.name ?? "",
+        longest: round(Math.max(size.x, size.y, size.z)),
+        size: [round(size.x), round(size.y), round(size.z)],
+        center: [round(center.x), round(center.y), round(center.z)],
+        headVerts,
+      };
+    });
   }
 
   /** World travel of each mesh, and its offset from the follow node. Does not hide anything. */
@@ -286,13 +373,21 @@ export class InspectorScene {
 
   private frameCamera(): void {
     this.refreshBodyBounds();
-    let min = new Vector3(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY);
-    let max = new Vector3(Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY);
-    for (const mesh of this.bodyMeshes()) {
-      const box = mesh.getBoundingInfo().boundingBox;
-      min = Vector3.Minimize(min, box.minimumWorld);
-      max = Vector3.Maximize(max, box.maximumWorld);
-    }
+    const origin = this.followNode?.getAbsolutePosition() ?? null;
+    const bounds = (nearOnly: boolean) => {
+      let min = new Vector3(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY);
+      let max = new Vector3(Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY);
+      for (const mesh of this.bodyMeshes()) {
+        if (!mesh.isEnabled()) continue;
+        const box = mesh.getBoundingInfo().boundingBox;
+        if (nearOnly && origin && Vector3.Distance(box.centerWorld, origin) > 250) continue;
+        min = Vector3.Minimize(min, box.minimumWorld);
+        max = Vector3.Maximize(max, box.maximumWorld);
+      }
+      return { min, max };
+    };
+    let { min, max } = bounds(true);
+    if (!Number.isFinite(min.x)) ({ min, max } = bounds(false));
     if (!Number.isFinite(min.x)) return;
     const center = min.add(max).scale(0.5);
     const size = max.subtract(min).length();
@@ -317,6 +412,8 @@ export class InspectorScene {
   }
 
   private disposeLoaded(): void {
+    this.temporary?.restore();
+    this.temporary = null;
     this.viewer?.dispose();
     this.viewer = null;
     this.followNode = null;
