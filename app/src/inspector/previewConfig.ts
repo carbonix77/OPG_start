@@ -89,6 +89,26 @@ export interface SwordGroup {
   indices: number[];
 }
 
+export interface MoveBehavior {
+  id: string;
+  clip: string;
+  /** Role text shown beside the clip. A candidate is not a confirmed name. */
+  label: string;
+  confidence: "provisional" | "candidate" | "named";
+}
+
+export interface PhantomSpec {
+  clip: string;
+  /** Side-by-side placement. Recenter does not edit the clip. */
+  offset: [number, number, number];
+}
+
+export interface WeaponState {
+  clip: string;
+  preset: "all" | "hide-static" | "stacks";
+  note: string;
+}
+
 export interface PreviewConfig {
   id: string;
   textureDir: string;
@@ -141,6 +161,13 @@ export interface PreviewConfig {
   shots: PreviewShot[];
   /** Null when this character has no cinematic pass. */
   cinematic: CinematicTimeline | null;
+  /** Idle and actions already in this file. The scene does not retarget them. */
+  behaviors: MoveBehavior[];
+  /** Main clip that may start the phantom copies. Null when there are none. */
+  asuraClip: string | null;
+  phantoms: PhantomSpec[];
+  /** Opt-in notes. Nothing here is applied until the page asks. */
+  weaponStates: WeaponState[];
 }
 
 export const FOLLOW_NODE_CANDIDATES = ["SK_Skeleton", "bone_1", "bone_0"];
@@ -323,6 +350,13 @@ export const ZORO_PREVIEW: PreviewConfig = {
     hitStop: { t: 0.34, seconds: 0.1, speed: 0.45 },
     contactTimes: [0, 0.08, 0.12, 0.22, 0.35, 0.55, 0.75, 0.92, 1],
   },
+  behaviors: [
+    { id: "idle", clip: "Zoro_0000", label: "Provisional combat idle", confidence: "provisional" },
+    { id: "special", clip: "Zoro_1330", label: "Charming Demon Sleepless Night Onigiri", confidence: "named" },
+  ],
+  asuraClip: null,
+  phantoms: [],
+  weaponStates: [],
 };
 
 /** Generated config. It has no character mesh, clip, or texture. */
@@ -366,6 +400,15 @@ export const FIXTURE_PREVIEW: PreviewConfig = {
   },
   shots: [],
   cinematic: null,
+  behaviors: [
+    { id: "idle", clip: "fixture-idle", label: "Fixture idle", confidence: "provisional" },
+    { id: "action-a", clip: "fixture-action-a", label: "Fixture action A", confidence: "candidate" },
+    { id: "action-b", clip: "fixture-action-b", label: "Fixture action B", confidence: "candidate" },
+    { id: "reaction", clip: "fixture-reaction", label: "Fixture reaction", confidence: "candidate" },
+  ],
+  asuraClip: null,
+  phantoms: [],
+  weaponStates: [],
 };
 
 /** Same look as the cinematic file, with the moveset clips that share its skeleton. No cinematic timeline. */
@@ -374,11 +417,78 @@ export const ZORO_MOVES_PREVIEW: PreviewConfig = {
   id: "zoro-moves",
   attackClip: "Zoro_0500",
   cinematic: null,
+  behaviors: [
+    { id: "idle", clip: "Zoro_0000", label: "Provisional combat idle", confidence: "provisional" },
+    { id: "basic", clip: "Zoro_0500", label: "Basic attack candidate", confidence: "candidate" },
+    { id: "oni-combo", clip: "Zoro_0650", label: "Combo-order Oni Giri candidate", confidence: "candidate" },
+    { id: "asura", clip: "Zoro_1320", label: "Asura main animation", confidence: "named" },
+    { id: "reaction", clip: "Zoro_0060", label: "Possible hit or knockback. Not confirmed.", confidence: "candidate" },
+  ],
+};
+
+/** One local file for the six roster clips plus the two phantom clips. */
+export const ZORO_ROSTER_PREVIEW: PreviewConfig = {
+  ...ZORO_PREVIEW,
+  id: "zoro-roster",
+  attackClip: "Zoro_0500",
+  cinematic: null,
+  asuraClip: "Zoro_1320",
+  behaviors: [
+    { id: "idle", clip: "Zoro_0000", label: "Provisional combat idle", confidence: "provisional" },
+    { id: "basic", clip: "Zoro_0500", label: "Basic attack candidate", confidence: "candidate" },
+    { id: "oni-combo", clip: "Zoro_0650", label: "Combo-order Oni Giri candidate", confidence: "candidate" },
+    { id: "special", clip: "Zoro_1330", label: "Charming Demon Sleepless Night Onigiri", confidence: "named" },
+    { id: "asura", clip: "Zoro_1320", label: "Asura main animation", confidence: "named" },
+    { id: "reaction-a", clip: "Zoro_0060", label: "Possible hit or knockback. Not confirmed.", confidence: "candidate" },
+    { id: "reaction-b", clip: "Zoro_0061", label: "Possible hit or knockback. Not confirmed.", confidence: "candidate" },
+  ],
+  phantoms: [
+    { clip: "Zoro_1322", offset: [160, 0, 0] },
+    { clip: "Zoro_1324", offset: [-160, 0, 0] },
+  ],
+  weaponStates: [
+    {
+      clip: "Zoro_0000",
+      preset: "all",
+      note: "Hands and hip swords stay visible. The mouth blade is not at the face.",
+    },
+    {
+      clip: "Zoro_0500",
+      preset: "stacks",
+      note: "Hip shells overlap in Show all. This preset hides the lower-vertex copies only while their centers stay together.",
+    },
+    {
+      clip: "Zoro_0650",
+      preset: "all",
+      note: "Swords spread. No meshes are hidden. Frame the body so the character stays readable.",
+    },
+    {
+      clip: "Zoro_1330",
+      preset: "all",
+      note: "The mouth blade comes to the face on this clip. Hand and hip groups stay visible.",
+    },
+    {
+      clip: "Zoro_1320",
+      preset: "all",
+      note: "The main body plays Zoro_1320 only. Phantom copies are a separate control.",
+    },
+    {
+      clip: "Zoro_0060",
+      preset: "all",
+      note: "Swords leave the hands in this short clip. That is the pose, not a mesh to hide.",
+    },
+    {
+      clip: "Zoro_0061",
+      preset: "all",
+      note: "Possible reaction. No hide rule.",
+    },
+  ],
 };
 
 const PREVIEW_REGISTRY: Record<string, PreviewConfig> = {
   "noesis-present": ZORO_PREVIEW,
   "noesis-moves": ZORO_MOVES_PREVIEW,
+  "noesis-roster": ZORO_ROSTER_PREVIEW,
   fixture: FIXTURE_PREVIEW,
 };
 
@@ -388,13 +498,23 @@ export function previewForAsset(assetId: string): PreviewConfig | null {
 }
 
 /** Checks the registry without loading a model. */
-export function registryCheck(): { present: string | null; fixture: string | null; unknown: boolean; fixtureMouth: number | null } {
+export function registryCheck(): {
+  present: string | null;
+  fixture: string | null;
+  unknown: boolean;
+  fixtureMouth: number | null;
+  roster: string | null;
+  rosterPhantoms: number;
+} {
   const fixture = previewForAsset("fixture");
+  const roster = previewForAsset("noesis-roster");
   return {
     present: previewForAsset("noesis-present")?.id ?? null,
     fixture: fixture?.id ?? null,
     unknown: previewForAsset("not-a-character") === null,
     fixtureMouth: fixture?.mouthMeshIndex ?? null,
+    roster: roster?.id ?? null,
+    rosterPhantoms: roster?.phantoms.length ?? 0,
   };
 }
 

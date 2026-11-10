@@ -50,6 +50,12 @@ export const LOCAL_ASSETS: LocalAsset[] = [
     note: "Zoro_0000 with Zoro_0500, Zoro_0650, Zoro_0060, and Zoro_1320 on one skeleton. Names stay candidates until playback. Not retargeted.",
   },
   {
+    id: "noesis-roster",
+    label: "Noesis glTF roster",
+    relativePath: "private-assets/validation/merge-roster/merged.gltf",
+    note: "One skeleton: provisional combat idle Zoro_0000, basic attack candidate Zoro_0500, combo-order Oni Giri candidate Zoro_0650, Charming Demon Sleepless Night Onigiri Zoro_1330, Asura main Zoro_1320, and possible reactions Zoro_0060 and Zoro_0061. Zoro_1322 and Zoro_1324 are phantom clips, not extra meshes. Not retargeted.",
+  },
+  {
     id: "noesis-next",
     label: "Noesis glTF next unnamed clips",
     relativePath: "private-assets/validation/merge-next/merged.gltf",

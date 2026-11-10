@@ -1,5 +1,6 @@
 import {
   Animation,
+  AssetContainer,
   ArcRotateCamera,
   Color3,
   Color4,
@@ -126,6 +127,31 @@ export interface CinematicMeasure {
   rows: CinematicFrame[];
 }
 
+export interface PhantomRow {
+  clip: string;
+  local: [number, number, number];
+  world: [number, number, number];
+}
+
+export interface PhantomReport {
+  spawned: number;
+  loadMs: number;
+  clips: string[];
+  meshes: number;
+  rows: PhantomRow[];
+  note: string;
+}
+
+interface PhantomBody {
+  clip: string;
+  root: TransformNode;
+  follow: TransformNode | null;
+  group: AnimationGroup | null;
+  container: AssetContainer;
+  place: [number, number, number];
+  meshes: number;
+}
+
 interface RuntimeEffect {
   id: string;
   kind: PreviewEffect["kind"];
@@ -171,8 +197,15 @@ export class InspectorScene {
   private visibility: VisibilityPreset = "all";
   private shotRadius: number | null = null;
   private shotOffset: Vector3 | null = null;
+  private readonly fill: HemisphericLight;
   private readonly sun: DirectionalLight;
   private readonly rim: DirectionalLight;
+  private bodyFrame = false;
+  private savedFill = 0.7;
+  private savedSun = 0.8;
+  private assetPath = "";
+  private phantoms: PhantomBody[] = [];
+  private phantomLoadMs = 0;
   private readonly ground: Mesh;
   private readonly groundMat: StandardMaterial;
   private mouthPreview: { mesh: Mesh; previous: Material | null; material: PBRMaterial; texture: Texture } | null = null;
@@ -207,8 +240,8 @@ export class InspectorScene {
     this.camera.lowerRadiusLimit = 1;
     this.camera.upperRadiusLimit = 8000;
     this.camera.wheelPrecision = 2;
-    const fill = new HemisphericLight("fill", new Vector3(0, 1, 0), this.scene);
-    fill.intensity = 0.7;
+    this.fill = new HemisphericLight("fill", new Vector3(0, 1, 0), this.scene);
+    this.fill.intensity = 0.7;
     this.sun = new DirectionalLight("sun", new Vector3(-0.4, -1, 0.3), this.scene);
     this.sun.intensity = 0.8;
     this.rim = new DirectionalLight("rim", new Vector3(0.7, -0.35, 0.6), this.scene);
@@ -224,6 +257,7 @@ export class InspectorScene {
     this.engine.runRenderLoop(() => {
       this.applyRecenter();
       if (this.recenter && this.followNode) this.followNode.computeWorldMatrix(true);
+      this.applyPhantomPlacement();
       if (this.visibility === "stacks") this.applyStackVisibility();
       if (this.cameraDrive === "timeline" && this.followNode) {
         this.applyTimeline();
@@ -236,6 +270,8 @@ export class InspectorScene {
           this.measuring.push(this.readFrame(state.clip, state.normalized));
         }
         this.applyHitStop(state);
+      } else if (this.bodyFrame && this.followNode) {
+        this.applyBodyFrame();
       } else if (this.follow && this.followNode) {
         if (this.tight) this.aimPreview();
         else this.camera.target.copyFrom(this.followNode.getAbsolutePosition());
@@ -262,6 +298,7 @@ export class InspectorScene {
     this.stop();
     this.disposeLoaded();
     this.assetId = asset.id;
+    this.assetPath = asset.relativePath;
     const { rootUrl, fileName } = assetUrl(asset.relativePath);
     try {
       const result = await SceneLoader.AppendAsync(rootUrl, fileName, this.scene);
@@ -328,6 +365,7 @@ export class InspectorScene {
       if (other !== group) other.stop();
     }
     group.play(loop);
+    this.syncPhantomPlayback(name, 0);
   }
 
   /**
@@ -346,6 +384,7 @@ export class InspectorScene {
       if (other !== idle) other.stop();
     }
     idle.play(true);
+    this.syncPhantomPlayback(config.idleClip, 0);
     return `${config.idleClip} is looping on this file's skeleton. Provisional preview idle, not a verified idle.`;
   }
 
@@ -362,9 +401,14 @@ export class InspectorScene {
    * Plays one clip from this file once, then loops the configured idle.
    * The clip must already be in the file. Nothing is copied from another asset.
    */
-  playClipThenIdle(config: PreviewConfig | null, clipName: string): string {
+  playClipThenIdle(config: PreviewConfig | null, clipName: string, keepVisibility = false): string {
     if (!config) return "This file has no preview config.";
-    if (clipName === config.idleClip) return this.playProvisionalIdle(config);
+    if (clipName === config.idleClip) {
+      const message = this.playProvisionalIdle(config);
+      if (keepVisibility) this.setVisibilityPreset(this.visibility, config);
+      this.syncPhantomPlayback(clipName, 0);
+      return message;
+    }
     const idle = this.groups.find((item) => item.name === config.idleClip);
     const attack = this.groups.find((item) => item.name === clipName);
     if (!idle || !attack) return `Needs ${config.idleClip} and ${clipName} in this file. Clips are not retargeted.`;
@@ -373,6 +417,8 @@ export class InspectorScene {
     this.attackClip = clipName;
     this.framePhase = "attack";
     this.armPreview(config);
+    if (keepVisibility) this.setVisibilityPreset(this.visibility, config);
+    this.syncPhantomPlayback(clipName, 0);
     for (const other of this.groups) {
       if (other !== attack) other.stop();
     }
@@ -380,6 +426,7 @@ export class InspectorScene {
     attack.play(false);
     this.attackEnd = attack.onAnimationGroupEndObservable.add(() => {
       this.clearAttackEnd();
+      this.stopPhantomClips();
       if (!this.groups.includes(idle)) return;
       this.framePhase = "idle";
       this.blendToIdle(attack, idle, config.blendSeconds);
@@ -391,6 +438,7 @@ export class InspectorScene {
   stopPreview(): void {
     this.leaveTimeline();
     this.clearAttackEnd();
+    this.stopPhantomClips();
     this.tight = false;
     this.follow = false;
     this.shotRadius = null;
@@ -447,6 +495,201 @@ export class InspectorScene {
   setRecenter(enabled: boolean): void {
     this.recenter = enabled;
     if (!enabled) this.previewRoot.position.setAll(0);
+  }
+
+  /**
+   * Keeps the camera on the follow node at a body-sized radius.
+   * Sword bounds are ignored. Lights rise only while this is on, then restore.
+   */
+  setBodyFrame(enabled: boolean): void {
+    if (enabled && !this.bodyFrame) {
+      this.savedFill = this.fill.intensity;
+      this.savedSun = this.sun.intensity;
+      this.fill.intensity = Math.max(this.savedFill, 1.05);
+      this.sun.intensity = Math.max(this.savedSun, 1.1);
+      this.cameraDrive = "orbit";
+    }
+    if (!enabled && this.bodyFrame) {
+      this.fill.intensity = this.savedFill;
+      this.sun.intensity = this.savedSun;
+    }
+    this.bodyFrame = enabled;
+    if (enabled) this.applyBodyFrame();
+  }
+
+  /**
+   * Loads two more copies of this file, each with its own skeleton.
+   * They stay hidden until the Asura clip plays. Off disposes them.
+   */
+  async setPhantoms(enabled: boolean): Promise<string> {
+    const token = this.loadToken;
+    this.clearPhantoms();
+    if (!enabled) return "Phantoms are off. No extra bodies are in the scene.";
+    const specs = this.preview?.phantoms ?? [];
+    if (specs.length === 0 || !this.assetPath) return "This character has no phantom clips.";
+    const missing = specs.filter((spec) => !this.groups.some((group) => group.name === spec.clip));
+    if (missing.length > 0) {
+      return `This file has no ${missing.map((spec) => spec.clip).join(", ")}. No bodies were spawned.`;
+    }
+    const { rootUrl, fileName } = assetUrl(this.assetPath);
+    const started = performance.now();
+    try {
+      for (const spec of specs) {
+        if (token !== this.loadToken) {
+          this.clearPhantoms();
+          return "cancelled";
+        }
+        const container = await SceneLoader.LoadAssetContainerAsync(rootUrl, fileName, this.scene);
+        const root = new TransformNode(`phantom-root-${spec.clip}`, this.scene);
+        root.parent = this.previewRoot;
+        root.position.set(spec.offset[0], spec.offset[1], spec.offset[2]);
+        container.addAllToScene();
+        for (const group of container.animationGroups) group.stop();
+        for (const node of container.transformNodes) {
+          if (!node.parent) node.setParent(root);
+        }
+        for (const mesh of container.meshes) {
+          mesh.name = `phantom-${spec.clip}-${mesh.name}`;
+          if (!mesh.parent) mesh.setParent(root);
+          const index = meshIndexOf(mesh.name);
+          if (index !== null && (this.preview?.excludedMeshIndices ?? []).includes(index)) mesh.setEnabled(false);
+        }
+        const follow = container.transformNodes.find((node) => (this.preview?.followNodes ?? []).includes(node.name)) ?? null;
+        const group =
+          container.animationGroups.find((item) => item.name === spec.clip || item.name.startsWith(`${spec.clip}.`)) ?? null;
+        root.setEnabled(false);
+        this.phantoms.push({
+          clip: spec.clip,
+          root,
+          follow,
+          group,
+          container,
+          place: spec.offset,
+          meshes: container.meshes.length,
+        });
+      }
+    } catch (error) {
+      this.clearPhantoms();
+      return error instanceof Error ? error.message : String(error);
+    }
+    if (token !== this.loadToken) {
+      this.clearPhantoms();
+      return "cancelled";
+    }
+    this.phantomLoadMs = performance.now() - started;
+    const asura = this.preview?.asuraClip;
+    const playing = asura ? this.groups.find((group) => group.name === asura && group.isStarted) : undefined;
+    if (playing && asura) this.syncPhantomPlayback(asura, this.normalizedOf(playing));
+    return `Spawned ${this.phantoms.length} separate skinned copies in ${Math.round(this.phantomLoadMs)} ms. They stay hidden until ${asura ?? "the Asura clip"} plays. Not verified Asura.`;
+  }
+
+  /** Samples each phantom at the end of its own clip, then hides it again. */
+  samplePhantoms(): PhantomReport {
+    const rows: PhantomRow[] = [];
+    for (const phantom of this.phantoms) {
+      phantom.root.setEnabled(true);
+      const group = phantom.group;
+      if (group) {
+        group.stop();
+        group.play(false);
+        group.goToFrame(group.to);
+      }
+      phantom.follow?.computeWorldMatrix(true);
+      this.applyPhantomPlacement();
+      phantom.follow?.computeWorldMatrix(true);
+      const local = phantom.follow?.position ?? Vector3.Zero();
+      const world = phantom.follow?.getAbsolutePosition() ?? Vector3.Zero();
+      rows.push({
+        clip: phantom.clip,
+        local: [round(local.x), round(local.y), round(local.z)],
+        world: [round(world.x), round(world.y), round(world.z)],
+      });
+      group?.stop();
+      phantom.root.setEnabled(false);
+    }
+    const clips = this.phantoms.map((phantom) => phantom.clip);
+    return {
+      spawned: this.phantoms.length,
+      loadMs: Math.round(this.phantomLoadMs),
+      clips,
+      meshes: this.phantoms.reduce((sum, phantom) => sum + phantom.meshes, 0),
+      rows,
+      note:
+        this.phantoms.length === 0
+          ? "No phantom copies are loaded."
+          : "Each copy plays its own clip on its own skeleton. The main body is not playing those clips.",
+    };
+  }
+
+  /** Shows the copies at one normalized time on their own clips. */
+  syncPhantoms(normalized: number): void {
+    this.startPhantomClips(normalized);
+  }
+
+  async measureFps(ms: number): Promise<{ frames: number; avgFps: number; minFps: number }> {
+    const gaps: number[] = [];
+    let last = performance.now();
+    const start = last;
+    const token = this.loadToken;
+    return new Promise((resolve) => {
+      const observer = this.scene.onAfterRenderObservable.add(() => {
+        const now = performance.now();
+        gaps.push(now - last);
+        last = now;
+        if (now - start < ms && token === this.loadToken) return;
+        this.scene.onAfterRenderObservable.remove(observer);
+        if (gaps.length === 0) {
+          resolve({ frames: 0, avgFps: 0, minFps: 0 });
+          return;
+        }
+        const fps = gaps.map((gap) => 1000 / gap);
+        const avg = fps.reduce((sum, value) => sum + value, 0) / fps.length;
+        resolve({ frames: gaps.length, avgFps: round(avg), minFps: round(Math.min(...fps)) });
+      });
+    });
+  }
+
+  /**
+   * Records the canvas for a few seconds. Does not write a file.
+   * This is separate from the cinematic recorder.
+   */
+  recordWindow(seconds: number): Promise<{ blob: Blob; width: number; height: number } | null> {
+    if (typeof MediaRecorder === "undefined") return Promise.resolve(null);
+    const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp8") ? "video/webm;codecs=vp8" : "video/webm";
+    let recorder: MediaRecorder;
+    const chunks: Blob[] = [];
+    try {
+      const stream = this.canvas.captureStream(30);
+      recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 2_500_000 });
+    } catch {
+      return Promise.resolve(null);
+    }
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data);
+    };
+    recorder.start(250);
+    return new Promise((resolve) => {
+      window.setTimeout(() => {
+        const finish = () => {
+          resolve({ blob: new Blob(chunks, { type: mime }), width: this.canvas.width, height: this.canvas.height });
+        };
+        if (recorder.state === "inactive") finish();
+        else {
+          recorder.onstop = finish;
+          recorder.stop();
+        }
+      }, Math.max(0.2, seconds) * 1000);
+    });
+  }
+
+  /** Applies the recorded sword preset for one clip. Show all stays available. */
+  applyWeaponState(clip: string): { preset: VisibilityPreset; note: string } {
+    const state = this.preview?.weaponStates.find((item) => item.clip === clip);
+    if (!state) {
+      return { preset: this.visibility, note: "No recorded sword preset for this clip. Show all stays available." };
+    }
+    this.setVisibilityPreset(state.preset, this.preview);
+    return { preset: state.preset, note: state.note };
   }
 
   /**
@@ -953,6 +1196,15 @@ export class InspectorScene {
     return this.bodyMeshes().find((mesh) => meshIndexOf(mesh.name) === index) ?? null;
   }
 
+  private isPhantomMesh(mesh: AbstractMesh): boolean {
+    let node: AbstractMesh | TransformNode | null = mesh;
+    while (node) {
+      if (node.name.startsWith("phantom-")) return true;
+      node = node.parent as TransformNode | null;
+    }
+    return false;
+  }
+
   private isExcluded(mesh: Mesh): boolean {
     const index = meshIndexOf(mesh.name);
     return index !== null && (this.preview?.excludedMeshIndices ?? []).includes(index);
@@ -971,6 +1223,7 @@ export class InspectorScene {
         mesh instanceof Mesh &&
         mesh.name !== "ground" &&
         !mesh.name.startsWith("preview-fx-") &&
+        !this.isPhantomMesh(mesh) &&
         mesh.getTotalVertices() > 0 &&
         !this.isExcluded(mesh),
     );
@@ -1016,6 +1269,73 @@ export class InspectorScene {
     for (const node of result.transformNodes) node.dispose();
   }
 
+  private applyBodyFrame(): void {
+    if (!this.followNode) return;
+    const origin = this.followNode.getAbsolutePosition();
+    this.camera.target.set(origin.x, origin.y + 20, origin.z);
+    this.camera.radius = 340;
+    this.camera.alpha = Math.PI / 2 + 0.4;
+    this.camera.beta = 1.15;
+  }
+
+  private syncPhantomPlayback(clipName: string, normalized: number): void {
+    if (this.phantoms.length === 0) return;
+    if (this.preview?.asuraClip === clipName) this.startPhantomClips(normalized);
+    else this.stopPhantomClips();
+  }
+
+  private startPhantomClips(normalized: number): void {
+    for (const phantom of this.phantoms) {
+      phantom.root.setEnabled(true);
+      const group = phantom.group;
+      if (!group) continue;
+      for (const other of phantom.container.animationGroups) {
+        if (other !== group) other.stop();
+      }
+      group.reset();
+      group.play(false);
+      group.goToFrame(group.from + clamp01(normalized) * (group.to - group.from));
+    }
+  }
+
+  private stopPhantomClips(): void {
+    for (const phantom of this.phantoms) {
+      phantom.group?.stop();
+      phantom.root.setEnabled(false);
+    }
+  }
+
+  private clearPhantoms(): void {
+    for (const phantom of this.phantoms) {
+      phantom.group?.stop();
+      phantom.container.removeAllFromScene();
+      phantom.container.dispose();
+      if (!phantom.root.isDisposed()) phantom.root.dispose();
+    }
+    this.phantoms = [];
+    this.phantomLoadMs = 0;
+  }
+
+  private applyPhantomPlacement(): void {
+    for (const phantom of this.phantoms) {
+      if (!phantom.root.isEnabled()) continue;
+      if (!this.recenter || !phantom.follow) {
+        phantom.root.position.set(phantom.place[0], phantom.place[1], phantom.place[2]);
+        continue;
+      }
+      // One step cannot cancel a rotated root. A few repeats settle X/Z.
+      for (let pass = 0; pass < 4; pass += 1) {
+        phantom.follow.computeWorldMatrix(true);
+        const world = phantom.follow.getAbsolutePosition();
+        const main = this.followNode?.getAbsolutePosition();
+        const parent = phantom.root.position;
+        const targetX = (main?.x ?? 0) + phantom.place[0];
+        const targetZ = (main?.z ?? 0) + phantom.place[2];
+        phantom.root.position.set(parent.x + (targetX - world.x), phantom.place[1], parent.z + (targetZ - world.z));
+      }
+    }
+  }
+
   private applyRecenter(): void {
     if (!this.recenter || !this.followNode) {
       if (this.previewRoot.position.lengthSquared() !== 0) this.previewRoot.position.setAll(0);
@@ -1056,6 +1376,7 @@ export class InspectorScene {
   }
 
   private disposeLoaded(): void {
+    this.clearPhantoms();
     this.clearEffects();
     this.leaveTimeline();
     this.clearAttackEnd();
@@ -1684,6 +2005,78 @@ export class InspectorScene {
       actionMoved: round(actionMoved),
       idleReturned,
       detail: "A generated rig played fixture-action once, then fixture-idle. No character name was used.",
+    };
+  }
+
+  /**
+   * Two actions and a reaction, then idle, on bones named rig-spine and rig-arm.
+   * No character clip is used.
+   */
+  fixtureMoveset(): {
+    ok: boolean;
+    actionA: number;
+    actionB: number;
+    reaction: number;
+    idleReturned: boolean;
+    detail: string;
+  } {
+    const spine = new TransformNode("rig-spine", this.scene);
+    spine.parent = this.previewRoot;
+    const arm = new TransformNode("rig-arm", this.scene);
+    arm.parent = spine;
+    const clip = (name: string, property: string, from: number, to: number) => {
+      const motion = new Animation(name, property, 60, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CYCLE);
+      motion.setKeys([
+        { frame: 0, value: from },
+        { frame: 20, value: to },
+      ]);
+      const group = new AnimationGroup(name, this.scene);
+      group.addTargetedAnimation(motion, arm);
+      return group;
+    };
+    const actionA = clip("fixture-action-a", "position.x", 0, 5);
+    const actionB = clip("fixture-action-b", "position.z", 0, -3);
+    const reaction = clip("fixture-reaction", "position.y", 0, 2);
+    const idle = new AnimationGroup("fixture-moveset-idle", this.scene);
+    for (const [property, value] of [
+      ["position.x", 0],
+      ["position.y", 0],
+      ["position.z", 0],
+    ] as const) {
+      const motion = new Animation(`fixture-moveset-${property}`, property, 60, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CYCLE);
+      motion.setKeys([
+        { frame: 0, value },
+        { frame: 20, value },
+      ]);
+      idle.addTargetedAnimation(motion, arm);
+    }
+    const playToEnd = (group: AnimationGroup) => {
+      group.start(false, 1, 0, 20, false);
+      group.goToFrame(20);
+      arm.computeWorldMatrix(true);
+    };
+    playToEnd(actionA);
+    const movedA = Math.abs(arm.position.x);
+    actionA.stop();
+    playToEnd(actionB);
+    const movedB = Math.abs(arm.position.z);
+    actionB.stop();
+    playToEnd(reaction);
+    const movedReaction = Math.abs(arm.position.y);
+    reaction.stop();
+    playToEnd(idle);
+    const idleReturned = Math.abs(arm.position.x) < 0.01 && Math.abs(arm.position.y) < 0.01 && Math.abs(arm.position.z) < 0.01;
+    idle.stop();
+    for (const group of [actionA, actionB, reaction, idle]) group.dispose();
+    arm.dispose();
+    spine.dispose();
+    return {
+      ok: movedA > 1 && movedB > 1 && movedReaction > 1 && idleReturned,
+      actionA: round(movedA),
+      actionB: round(movedB),
+      reaction: round(movedReaction),
+      idleReturned,
+      detail: "A generated rig played two actions and a reaction, then fixture idle. Bones are rig-spine and rig-arm.",
     };
   }
 

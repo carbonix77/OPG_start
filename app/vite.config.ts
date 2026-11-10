@@ -10,8 +10,9 @@ function localRecording(): Plugin {
     name: "local-recording",
     configureServer(server) {
       server.middlewares.use("/__local-recording", (req, res) => {
+        const recordingName = req.url?.startsWith("/roster") ? "roster-preview.webm" : "cinematic-preview.webm";
         if (req.method === "GET") {
-          const file = path.join(repoRoot, "private-assets", "review", "cinematic-preview.webm");
+          const file = path.join(repoRoot, "private-assets", "review", recordingName);
           if (!fs.existsSync(file)) {
             res.statusCode = 404;
             res.end("no local recording");
@@ -37,10 +38,10 @@ function localRecording(): Plugin {
           }
           const dir = path.join(repoRoot, "private-assets", "review");
           fs.mkdirSync(dir, { recursive: true });
-          const file = path.join(dir, "cinematic-preview.webm");
+          const file = path.join(dir, recordingName);
           fs.writeFileSync(file, body);
           res.setHeader("content-type", "text/plain");
-          res.end(`Wrote ${body.length} bytes to private-assets/review/cinematic-preview.webm`);
+          res.end(`Wrote ${body.length} bytes to private-assets/review/${recordingName}`);
         });
       });
     },

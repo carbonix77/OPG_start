@@ -38,6 +38,9 @@ export function App() {
   const [orbitDebug, setOrbitDebug] = useState(false);
   const [viewportOnly, setViewportOnly] = useState(false);
   const [wideFrame, setWideFrame] = useState(false);
+  const [behaviorId, setBehaviorId] = useState("");
+  const [bodyFrame, setBodyFrame] = useState(false);
+  const [phantoms, setPhantoms] = useState(false);
   const [textureNotes, setTextureNotes] = useState<TextureNote[]>([]);
   const [samples, setSamples] = useState<MeshSample[]>([]);
   const [status, setStatus] = useState("Loading");
@@ -79,6 +82,10 @@ export function App() {
     setPreviewEffects(false);
     setOrbitDebug(false);
     setPreviewNote("");
+    setBehaviorId("");
+    setBodyFrame(false);
+    setPhantoms(false);
+    inspector.setBodyFrame(false);
     const config = previewForAsset(assetId);
     inspector.setPreviewConfig(config);
     inspector.setStage(false);
@@ -97,6 +104,7 @@ export function App() {
 
   const asset = LOCAL_ASSETS.find((item) => item.id === assetId);
   const preview = previewForAsset(assetId);
+  const behavior = preview?.behaviors.find((item) => item.id === behaviorId) ?? preview?.behaviors[0];
 
   return (
     <div className={["app", viewportOnly ? "viewport-only" : "", wideFrame ? "frame-wide" : ""].filter(Boolean).join(" ")}>
@@ -118,11 +126,15 @@ export function App() {
           Animation
           <select value={clip} onChange={(event) => setClip(event.target.value)}>
             {facts.clips.length === 0 ? <option value="">No clips in this file</option> : null}
-            {facts.clips.map((item) => (
-              <option key={item.name} value={item.name}>
-                {item.name} ({item.seconds.toFixed(2)} s)
-              </option>
-            ))}
+            {facts.clips.map((item) => {
+              const role = preview?.behaviors.find((behavior) => behavior.clip === item.name);
+              return (
+                <option key={item.name} value={item.name}>
+                  {item.name}
+                  {role ? ` — ${role.label}` : ""} ({item.seconds.toFixed(2)} s)
+                </option>
+              );
+            })}
           </select>
         </label>
         <div className="row">
@@ -187,6 +199,44 @@ export function App() {
             Selected clip, then idle
           </button>
         </div>
+        {preview && preview.behaviors.length > 0 ? (
+          <label>
+            Behavior
+            <select value={behavior?.id ?? ""} onChange={(event) => setBehaviorId(event.target.value)}>
+              {preview.behaviors.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label} ({item.clip})
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {behavior ? (
+          <div className="row">
+            <button
+              type="button"
+              onClick={() => {
+                if (!preview) return;
+                setRecenter(true);
+                sceneRef.current?.setRecenter(true);
+                setPreviewNote(sceneRef.current?.playClipThenIdle(preview, behavior.clip, true) ?? "");
+              }}
+            >
+              Behavior, then idle
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const result = sceneRef.current?.applyWeaponState(behavior.clip);
+                if (!result) return;
+                setPreset(result.preset);
+                setPreviewNote(result.note);
+              }}
+            >
+              Recorded sword preset
+            </button>
+          </div>
+        ) : null}
         {previewNote ? <p className="note">{previewNote}</p> : null}
         <label className="check">
           <input type="checkbox" checked={loop} onChange={(event) => setLoop(event.target.checked)} />
@@ -242,7 +292,7 @@ export function App() {
               sceneRef.current?.setRecenter(event.target.checked);
             }}
           />
-          Preview recenter on X and Z. The clip is unchanged.
+          Presentation recenter on X and Z. Off leaves the raw root motion. The clip is unchanged.
         </label>
         <label className="check">
           <input
@@ -256,6 +306,32 @@ export function App() {
           <input type="checkbox" checked={wideFrame} onChange={(event) => setWideFrame(event.target.checked)} />
           16:9 frame. The preview buttons turn this on.
         </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={bodyFrame}
+            onChange={(event) => {
+              const enabled = event.target.checked;
+              setBodyFrame(enabled);
+              sceneRef.current?.setBodyFrame(enabled);
+            }}
+          />
+          Frame the body. Ignores sword bounds. Diagnostic exposure only.
+        </label>
+        {preview && preview.phantoms.length > 0 ? (
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={phantoms}
+              onChange={(event) => {
+                const enabled = event.target.checked;
+                setPhantoms(enabled);
+                void sceneRef.current?.setPhantoms(enabled).then((note) => setPreviewNote(note));
+              }}
+            />
+            Asura phantoms. Separate copies of Zoro_1322 and Zoro_1324. Not verified.
+          </label>
+        ) : null}
         <label>
           Mesh {preview?.mouthMeshIndex ?? "—"} sheet test
           <select
