@@ -25,3 +25,11 @@ private-assets/
 *.exe
 *.dll
 reports/screenshots/
+__pycache__/
+*.pyc
+
+# Local extracts. Keep them on disk and out of this public repo.
+Zoro/
+Luffy/
+Sanji/
+preview/
