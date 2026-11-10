@@ -19,12 +19,13 @@ The dev server is allowed to read the repository root so Babylon can fetch:
 - `private-assets/validation/merge-1330/merged-b.gltf`
 - `private-assets/validation/merge-1320/merged.gltf`
 - `private-assets/validation/merge-idle/merged.gltf`
+- `private-assets/validation/merge-quiet/merged.gltf`
 
 Those glTF files also need their `.bin` next to them. If a selector fails, the missing path is shown in the status line.
 
 ## What the page does
 
-- Switch between the existing GLB, the Noesis `1330` export, the Noesis Asura export, and the Noesis file of five unnamed clips.
+- Switch between the existing GLB, the Noesis `1330` export, the Noesis Asura export, and two Noesis files of unnamed clips.
 - Play, pause, loop, change speed, and scrub one clip at a time.
 - Show the bind pose. That pose is not a verified idle clip.
 - Orbit the camera. "Camera follows the root" moves only the camera. The clip still contains its root motion.
@@ -33,7 +34,8 @@ Those glTF files also need their `.bin` next to them. If a selector fails, the m
 - "Temporary textures" assigns `preview/textures/zoro/map.json` onto materials named `Material_N`. That map is reconstructed. `weapon00` through `weapon04` are marked guessed. Body sheets also get their `_n` normal. Sword sheets have no matching normal. This is not the game shader. UV `invertY` is false. Normals set `invertNormalMapY` because Babylon reads DirectX-style normals and these PNGs are the OpenGL-style files the older viewer uses.
 - "Mesh 36 test sheet" replaces the albedo on that one mesh. Other meshes keep the map.
 - "Sword view" can hide meshes 3, 22, 23, and 24 for a look. Show all stays the default, and the choice is not saved.
-- "Preview recenter" cancels the follow node's local X and Z on a preview parent. The clip keys stay as they are. Loop still restarts that motion when it is on.
+- "Preview recenter" cancels the follow node's world X and Z on a preview parent. The clip keys stay as they are. Loop still restarts that motion when it is on.
+- "Viewport only" hides the side panel and the status strip so a capture is the 3D view.
 
 `Zoro_1320`, `Zoro_1322`, and `Zoro_1324` stay separate clips. The page does not play them on three bodies.
 

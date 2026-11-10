@@ -31,6 +31,7 @@ export function App() {
   const [sheet, setSheet] = useState("");
   const [sheetNote, setSheetNote] = useState("");
   const [preset, setPreset] = useState<"all" | "hide-static">("all");
+  const [viewportOnly, setViewportOnly] = useState(false);
   const [textureNotes, setTextureNotes] = useState<TextureNote[]>([]);
   const [samples, setSamples] = useState<MeshSample[]>([]);
   const [status, setStatus] = useState("Loading");
@@ -49,6 +50,10 @@ export function App() {
       sceneRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    sceneRef.current?.resize();
+  }, [viewportOnly]);
 
   useEffect(() => {
     const inspector = sceneRef.current;
@@ -77,7 +82,7 @@ export function App() {
   const asset = LOCAL_ASSETS.find((item) => item.id === assetId);
 
   return (
-    <div className="app">
+    <div className={viewportOnly ? "app viewport-only" : "app"}>
       <aside>
         <h1>Zoro inspection</h1>
         <p className="note">Neither file is the canonical runtime model. Bind pose is not a verified idle.</p>
@@ -169,6 +174,14 @@ export function App() {
             }}
           />
           Preview recenter on X and Z. The clip is unchanged.
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={viewportOnly}
+            onChange={(event) => setViewportOnly(event.target.checked)}
+          />
+          Viewport only. Hides this panel for a cropped frame.
         </label>
         <label>
           Mesh 36 test sheet

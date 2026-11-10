@@ -29,7 +29,13 @@ export const LOCAL_ASSETS: LocalAsset[] = [
     id: "noesis-idle",
     label: "Noesis glTF unnamed candidates",
     relativePath: "private-assets/validation/merge-idle/merged.gltf",
-    note: "Unnamed Zoro_0000, 0001, 0051, 0060, and 0061. Not a confirmed idle or hit.",
+    note: "Zoro_0000 and 0001: unnamed in-place combat stance, idle candidate, not verified. Zoro_0060 and 0061: possible reactions, not verified hits. Zoro_0051 is a separate unnamed clip.",
+  },
+  {
+    id: "noesis-quiet",
+    label: "Noesis glTF quieter unnamed clips",
+    relativePath: "private-assets/validation/merge-quiet/merged.gltf",
+    note: "Unnamed Zoro_0165, Zoro_0006, and Zoro_0003. Small reconstructed root travel. Not verified idle or hit.",
   },
 ];
 

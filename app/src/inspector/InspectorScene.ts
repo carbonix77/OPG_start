@@ -228,7 +228,7 @@ export class InspectorScene {
   }
 
   /**
-   * Cancels the follow node's local X/Z in a preview parent.
+   * Cancels the follow node's world X/Z in a preview parent.
    * The clip keys are not changed. Vertical motion stays.
    */
   setRecenter(enabled: boolean): void {
@@ -468,8 +468,11 @@ export class InspectorScene {
       if (this.previewRoot.position.lengthSquared() !== 0) this.previewRoot.position.setAll(0);
       return;
     }
-    const local = this.followNode.position;
-    this.previewRoot.position.set(-local.x, 0, -local.z);
+    // Cancel the follow node's world X/Z. Local position is not enough:
+    // on the Noesis skeleton, world X is the opposite of the node's local X.
+    const world = this.followNode.getAbsolutePosition();
+    const parent = this.previewRoot.position;
+    this.previewRoot.position.set(-(world.x - parent.x), 0, -(world.z - parent.z));
   }
 
   private attachPreviewRoot(nodes: TransformNode[], meshes: AbstractMesh[]): void {

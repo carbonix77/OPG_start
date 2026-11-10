@@ -2,6 +2,10 @@
 html, body, #root { margin: 0; height: 100%; }
 body { font: 14px/1.4 Segoe UI, sans-serif; color: #e8e6e3; background: #1b1c1f; }
 .app { display: grid; grid-template-columns: 320px 1fr; height: 100%; }
+.app.viewport-only { grid-template-columns: 1fr; }
+.app.viewport-only aside,
+.app.viewport-only .facts { display: none; }
+.app.viewport-only main { grid-template-rows: 1fr; }
 aside { overflow: auto; padding: 16px; background: #24262b; }
 main { display: grid; grid-template-rows: 1fr auto; min-width: 0; }
 canvas { width: 100%; height: 100%; display: block; }
