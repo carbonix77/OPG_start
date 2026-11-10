@@ -44,6 +44,12 @@ export const LOCAL_ASSETS: LocalAsset[] = [
     note: "Zoro_0000 and Zoro_1330 on SK_Skeleton. Provisional preview only. Textures use the matched GLB slots. Not retargeted onto the GLB.",
   },
   {
+    id: "noesis-moves",
+    label: "Noesis glTF moveset candidates",
+    relativePath: "private-assets/validation/merge-moves/merged.gltf",
+    note: "Zoro_0000 with Zoro_0500, Zoro_0650, Zoro_0060, and Zoro_1320 on one skeleton. Names stay candidates until playback. Not retargeted.",
+  },
+  {
     id: "noesis-next",
     label: "Noesis glTF next unnamed clips",
     relativePath: "private-assets/validation/merge-next/merged.gltf",

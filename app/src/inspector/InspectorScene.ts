@@ -194,6 +194,8 @@ export class InspectorScene {
   private readonly tipPoint = new Vector3();
   private readonly tipOrigin = new Vector3();
   private readonly tipDir = new Vector3();
+  /** Milliseconds spent measuring a tip vertex. Zero until the first measurement. */
+  tipMeasureMs = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -353,12 +355,22 @@ export class InspectorScene {
    */
   playAttackThenIdle(config: PreviewConfig | null): string {
     if (!config) return "This file has no preview config.";
+    return this.playClipThenIdle(config, config.attackClip);
+  }
+
+  /**
+   * Plays one clip from this file once, then loops the configured idle.
+   * The clip must already be in the file. Nothing is copied from another asset.
+   */
+  playClipThenIdle(config: PreviewConfig | null, clipName: string): string {
+    if (!config) return "This file has no preview config.";
+    if (clipName === config.idleClip) return this.playProvisionalIdle(config);
     const idle = this.groups.find((item) => item.name === config.idleClip);
-    const attack = this.groups.find((item) => item.name === config.attackClip);
-    if (!idle || !attack) return `Needs ${config.idleClip} and ${config.attackClip} in this file. Clips are not retargeted.`;
+    const attack = this.groups.find((item) => item.name === clipName);
+    if (!idle || !attack) return `Needs ${config.idleClip} and ${clipName} in this file. Clips are not retargeted.`;
     this.leaveTimeline();
     this.clearAttackEnd();
-    this.attackClip = config.attackClip;
+    this.attackClip = clipName;
     this.framePhase = "attack";
     this.armPreview(config);
     for (const other of this.groups) {
@@ -372,7 +384,7 @@ export class InspectorScene {
       this.framePhase = "idle";
       this.blendToIdle(attack, idle, config.blendSeconds);
     });
-    return `${config.attackClip} plays once on this skeleton, then ${config.idleClip} loops. The clip keys are unchanged.`;
+    return `${clipName} plays once on this skeleton, then ${config.idleClip} loops. The clip keys are unchanged.`;
   }
 
   /** Leaves the preview frame and shows every mesh again. */
@@ -732,6 +744,34 @@ export class InspectorScene {
    * Root and pose at the end of the attack and the start of the idle.
    * Calls the recenter path directly. Does not edit clip keys.
    */
+  /**
+   * Root position at five points in one clip already in this file.
+   * Recenter is turned off for the read, then restored. Keys are not edited.
+   */
+  sampleClip(name: string): { seconds: number; rows: Array<{ t: number; local: [number, number, number]; world: [number, number, number] }> } | null {
+    const group = this.groups.find((item) => item.name === name);
+    if (!group || !this.followNode) return null;
+    const previous = this.recenter;
+    this.recenter = false;
+    this.previewRoot.position.setAll(0);
+    const rows: Array<{ t: number; local: [number, number, number]; world: [number, number, number] }> = [];
+    for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+      this.hold(group);
+      group.goToFrame(group.from + t * (group.to - group.from));
+      this.followNode.computeWorldMatrix(true);
+      const local = this.followNode.position;
+      const world = this.followNode.getAbsolutePosition();
+      rows.push({
+        t,
+        local: [round(local.x), round(local.y), round(local.z)],
+        world: [round(world.x), round(world.y), round(world.z)],
+      });
+    }
+    this.recenter = previous;
+    if (previous) this.applyRecenter();
+    return { seconds: round(this.seconds(group)), rows };
+  }
+
   sampleHandoff(config: PreviewConfig, recenter: boolean): HandoffRow[] {
     const attack = this.groups.find((item) => item.name === config.attackClip);
     const idle = this.groups.find((item) => item.name === config.idleClip);
@@ -1437,6 +1477,7 @@ export class InspectorScene {
     const bone = anchor.parent;
     if (tipMeshIndex === null || !(bone instanceof TransformNode)) return;
     if (anchor.metadata?.tipLocked) return;
+    const started = performance.now();
     const mesh = this.bodyMeshes().find((item) => meshIndexOf(item.name) === tipMeshIndex);
     if (!mesh) return;
     bone.computeWorldMatrix(true);
@@ -1483,6 +1524,7 @@ export class InspectorScene {
     const local = Vector3.TransformCoordinates(this.tipOrigin, bone.getWorldMatrix().clone().invert());
     anchor.position.copyFrom(local);
     anchor.metadata = { ...(anchor.metadata ?? {}), tipLocked: true };
+    this.tipMeasureMs = performance.now() - started;
   }
 
   /** Stretches the bloom along the measured tip instead of leaving a round flash. */
@@ -1591,6 +1633,57 @@ export class InspectorScene {
       ok: moved > 1,
       moved: round(moved),
       detail: "A generated box and clip drove a trail. No character name was used.",
+    };
+  }
+
+  /**
+   * Idle, then one action, then idle, on a generated rig.
+   * Bone names are rig-root and rig-limb. No character clip is used.
+   */
+  fixtureSequence(): { ok: boolean; actionMoved: number; idleReturned: boolean; detail: string } {
+    const root = new TransformNode("rig-root", this.scene);
+    root.parent = this.previewRoot;
+    const limb = new TransformNode("rig-limb", this.scene);
+    limb.parent = root;
+    const idleMotion = new Animation("rig-idle", "position.y", 60, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CYCLE);
+    idleMotion.setKeys([
+      { frame: 0, value: 0 },
+      { frame: 30, value: 0.2 },
+      { frame: 60, value: 0 },
+    ]);
+    const idleReset = new Animation("rig-idle-x", "position.x", 60, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CYCLE);
+    idleReset.setKeys([
+      { frame: 0, value: 0 },
+      { frame: 60, value: 0 },
+    ]);
+    const actionMotion = new Animation("rig-action", "position.x", 60, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CYCLE);
+    actionMotion.setKeys([
+      { frame: 0, value: 0 },
+      { frame: 20, value: 4 },
+    ]);
+    const idle = new AnimationGroup("fixture-idle", this.scene);
+    const action = new AnimationGroup("fixture-action", this.scene);
+    idle.addTargetedAnimation(idleMotion, limb);
+    idle.addTargetedAnimation(idleReset, limb);
+    action.addTargetedAnimation(actionMotion, limb);
+    action.start(false, 1, 0, 20, false);
+    action.goToFrame(20);
+    limb.computeWorldMatrix(true);
+    const actionMoved = Math.abs(limb.position.x);
+    action.stop();
+    idle.start(false, 1, 0, 60, false);
+    idle.goToFrame(0);
+    const idleReturned = Math.abs(limb.position.x) < 0.01 && Math.abs(limb.position.y) < 0.01;
+    idle.stop();
+    idle.dispose();
+    action.dispose();
+    limb.dispose();
+    root.dispose();
+    return {
+      ok: actionMoved > 1 && idleReturned,
+      actionMoved: round(actionMoved),
+      idleReturned,
+      detail: "A generated rig played fixture-action once, then fixture-idle. No character name was used.",
     };
   }
 

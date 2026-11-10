@@ -368,8 +368,17 @@ export const FIXTURE_PREVIEW: PreviewConfig = {
   cinematic: null,
 };
 
+/** Same look as the cinematic file, with the moveset clips that share its skeleton. No cinematic timeline. */
+export const ZORO_MOVES_PREVIEW: PreviewConfig = {
+  ...ZORO_PREVIEW,
+  id: "zoro-moves",
+  attackClip: "Zoro_0500",
+  cinematic: null,
+};
+
 const PREVIEW_REGISTRY: Record<string, PreviewConfig> = {
   "noesis-present": ZORO_PREVIEW,
+  "noesis-moves": ZORO_MOVES_PREVIEW,
   fixture: FIXTURE_PREVIEW,
 };
 

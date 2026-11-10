@@ -169,7 +169,22 @@ export function App() {
               setPreviewNote(sceneRef.current?.playAttackThenIdle(preview) ?? "");
             }}
           >
-            1330, then idle
+            {preview ? `${preview.attackClip}, then idle` : "Clip, then idle"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!preview || !clip) {
+                setPreviewNote("This file has no preview config.");
+                return;
+              }
+              setFollow(true);
+              setRecenter(true);
+              sceneRef.current?.setRecenter(true);
+              setPreviewNote(sceneRef.current?.playClipThenIdle(preview, clip) ?? "");
+            }}
+          >
+            Selected clip, then idle
           </button>
         </div>
         {previewNote ? <p className="note">{previewNote}</p> : null}
