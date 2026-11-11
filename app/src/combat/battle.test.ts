@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { meshIndexOf, previewForAsset } from "../inspector/previewConfig";
+import { chooseEnemyAction } from "./ai";
 import { BattleEngine, makeBalancedFiveVFive } from "./engine";
-import { FIXTURE_MANIFEST, NAMI_MANIFEST, SANJI_MANIFEST, USOPP_MANIFEST, ZORO_MANIFEST, skillOf } from "./manifests";
+import {
+  FIXTURE_MANIFEST,
+  NAMI_MANIFEST,
+  SANJI_MANIFEST,
+  USOPP_MANIFEST,
+  ZORO_MANIFEST,
+  primarySkills,
+  skillOf,
+} from "./manifests";
 
 function duo(seed: number, dummyHp = 60) {
   return new BattleEngine(seed, [
@@ -288,5 +297,90 @@ describe("BattleEngine", () => {
     const b = run(42);
     expect(a.winner).toBe(b.winner);
     expect(a.log.map((event) => event.type)).toEqual(b.log.map((event) => event.type));
+  });
+
+  it("gates specials on energy, gains from basic, refunds on pre-contact abort", () => {
+    const engine = duo(11, 200);
+    const zoro = () => engine.getState().units.find((unit) => unit.id === "zoro")!;
+    expect(zoro().energy).toBe(1);
+    expect(engine.canAct("zoro", "special", "dummy").ok).toBe(false);
+    engine.resolveFully("zoro", "basic", "dummy");
+    // Dummy may act; keep burning until Zoro again if needed.
+    let guard = 0;
+    while (engine.currentActorId() !== "zoro" && engine.getState().phase !== "ended" && guard < 8) {
+      guard += 1;
+      const actorId = engine.currentActorId();
+      if (!actorId) break;
+      engine.resolveFully(actorId, "dummy-poke", "zoro");
+    }
+    expect(engine.currentActorId()).toBe("zoro");
+    expect(zoro().energy).toBeGreaterThanOrEqual(2);
+    engine.resolveFully("zoro", "basic", "dummy");
+    while (engine.currentActorId() !== "zoro" && engine.getState().phase !== "ended" && guard < 16) {
+      guard += 1;
+      const actorId = engine.currentActorId();
+      if (!actorId) break;
+      engine.resolveFully(actorId, "dummy-poke", "zoro");
+    }
+    expect(zoro().energy).toBeGreaterThanOrEqual(3);
+    expect(engine.canAct("zoro", "special", "dummy").ok).toBe(true);
+    const before = zoro().energy;
+    engine.beginAction("zoro", "special", "dummy");
+    expect(zoro().energy).toBe(before - 3);
+    const actionId = engine.currentActionId()!;
+    engine.abortAction("test-refund", actionId);
+    expect(zoro().energy).toBe(before);
+  });
+
+  it("replays seeded enemy decisions for Nami and Usopp", () => {
+    const engine = new BattleEngine(9, [
+      { id: "zoro", manifestId: ZORO_MANIFEST.id, team: "alpha", speed: 5 },
+      { id: "sanji", manifestId: SANJI_MANIFEST.id, team: "alpha", speed: 4 },
+      { id: "nami", manifestId: NAMI_MANIFEST.id, team: "bravo", speed: 30 },
+      { id: "usopp", manifestId: USOPP_MANIFEST.id, team: "bravo", speed: 25 },
+    ]);
+    expect(engine.currentActorId()).toBe("nami");
+    const a = chooseEnemyAction(engine);
+    const b = chooseEnemyAction(engine);
+    expect(a).toEqual(b);
+    expect(a?.actorId).toBe("nami");
+    expect(a?.targetId === "zoro" || a?.targetId === "sanji").toBe(true);
+    expect(primarySkills(NAMI_MANIFEST).map((skill) => skill.id)).toEqual(["basic", "special"]);
+    engine.resolveFully(a!.actorId, a!.skillId, a!.targetId);
+    expect(engine.currentActorId()).toBe("usopp");
+    const usopp = chooseEnemyAction(engine);
+    expect(usopp?.actorId).toBe("usopp");
+    engine.resolveFully(usopp!.actorId, usopp!.skillId, usopp!.targetId);
+  });
+
+  it("plays a full 2v2 to a winner with specials when energy allows", () => {
+    const engine = new BattleEngine(21, [
+      { id: "zoro", manifestId: ZORO_MANIFEST.id, team: "alpha", speed: 20, startEnergy: 5 },
+      { id: "sanji", manifestId: SANJI_MANIFEST.id, team: "alpha", speed: 18, startEnergy: 5 },
+      { id: "nami", manifestId: NAMI_MANIFEST.id, team: "bravo", speed: 12, maxHp: 80, startEnergy: 5 },
+      { id: "usopp", manifestId: USOPP_MANIFEST.id, team: "bravo", speed: 10, maxHp: 75, startEnergy: 5 },
+    ]);
+    let guard = 0;
+    while (engine.getState().phase !== "ended" && guard < 80) {
+      guard += 1;
+      const actorId = engine.currentActorId();
+      if (!actorId) break;
+      const actor = engine.getState().units.find((unit) => unit.id === actorId)!;
+      if (actor.team === "bravo") {
+        const decision = chooseEnemyAction(engine);
+        if (!decision) break;
+        engine.resolveFully(decision.actorId, decision.skillId, decision.targetId);
+        continue;
+      }
+      const foes = engine.getState().units.filter((unit) => unit.alive && unit.team === "bravo");
+      const target = foes.sort((a, b) => a.hp - b.hp || a.id.localeCompare(b.id))[0];
+      if (!target) break;
+      const skillId = engine.canAct(actorId, "special", target.id).ok ? "special" : "basic";
+      engine.resolveFully(actorId, skillId, target.id);
+    }
+    const ended = engine.getState();
+    expect(ended.phase).toBe("ended");
+    expect(ended.winner === "alpha" || ended.winner === "bravo").toBe(true);
+    expect(ended.log.some((event) => event.type === "unit-defeated")).toBe(true);
   });
 });

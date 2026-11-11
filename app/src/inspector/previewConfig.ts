@@ -584,6 +584,11 @@ const PREVIEW_REGISTRY: Record<string, PreviewConfig> = {
   "noesis-sanji": SANJI_PREVIEW,
   "noesis-nami": NAMI_PREVIEW,
   "noesis-usopp": USOPP_PREVIEW,
+  // Local Blender GLB copies reuse the same preview/texture/hide config as Noesis.
+  "glb-zoro": ZORO_ROSTER_PREVIEW,
+  "glb-sanji": SANJI_PREVIEW,
+  "glb-nami": NAMI_PREVIEW,
+  "glb-usopp": USOPP_PREVIEW,
   fixture: FIXTURE_PREVIEW,
 };
 

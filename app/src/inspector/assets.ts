@@ -79,6 +79,30 @@ export const LOCAL_ASSETS: LocalAsset[] = [
     relativePath: "private-assets/validation/merge-usopp/merged.gltf",
     note: "Usopp_0000, Usopp_0500, Usopp_1300 on one skeleton. Own sheets under preview/textures/usopp. Not retargeted.",
   },
+  {
+    id: "glb-zoro",
+    label: "Blender GLB Zoro (local)",
+    relativePath: "private-assets/glb/zoro.glb",
+    note: "Local Blender export of merge-roster. Switchable fallback validation only; Noesis remains battle default until parity is accepted.",
+  },
+  {
+    id: "glb-sanji",
+    label: "Blender GLB Sanji (local)",
+    relativePath: "private-assets/glb/sanji.glb",
+    note: "Local Blender export of merge-sanji. Not the battle default yet.",
+  },
+  {
+    id: "glb-nami",
+    label: "Blender GLB Nami (local)",
+    relativePath: "private-assets/glb/nami.glb",
+    note: "Local Blender export of merge-nami. Not the battle default yet.",
+  },
+  {
+    id: "glb-usopp",
+    label: "Blender GLB Usopp (local)",
+    relativePath: "private-assets/glb/usopp.glb",
+    note: "Local Blender export of merge-usopp. Not the battle default yet.",
+  },
 ];
 
 export function assetUrl(relativePath: string): { rootUrl: string; fileName: string } {

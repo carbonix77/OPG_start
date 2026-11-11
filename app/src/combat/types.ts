@@ -15,6 +15,10 @@ export interface SkillDef {
   /** Clip already in the loaded file, or null when this skill has no animation. */
   clipId: string | null;
   confidence: "provisional" | "candidate" | "named" | "synthetic";
+  /** Energy spent when the action begins. */
+  energyCost: number;
+  /** Energy gained when contact lands (capped by unit maxEnergy). */
+  energyGain: number;
 }
 
 export interface CharacterManifest {
@@ -25,6 +29,10 @@ export interface CharacterManifest {
   /** Local asset id, or null for a synthetic fixture with no file. */
   assetId: string | null;
   idleClip: string | null;
+  /** Starting energy for a fresh unit. */
+  startEnergy: number;
+  /** Hard cap for the energy meter. */
+  maxEnergy: number;
   skills: SkillDef[];
 }
 
@@ -36,6 +44,8 @@ export interface UnitState {
   hp: number;
   maxHp: number;
   speed: number;
+  energy: number;
+  maxEnergy: number;
   alive: boolean;
 }
 
@@ -45,6 +55,7 @@ export interface PendingAction {
   skillId: string;
   targetId: string;
   contactApplied: boolean;
+  energySpent: number;
 }
 
 export interface BattleState {
@@ -63,8 +74,8 @@ export interface BattleState {
 export type BattleEvent =
   | { type: "battle-started"; seed: number; order: string[] }
   | { type: "turn"; turnIndex: number; actorId: string }
-  | { type: "action-started"; actionId: number; actorId: string; skillId: string; targetId: string }
-  | { type: "contact"; actionId: number; actorId: string; skillId: string; targetId: string; damage: number; targetHp: number }
+  | { type: "action-started"; actionId: number; actorId: string; skillId: string; targetId: string; energySpent: number; energyLeft: number }
+  | { type: "contact"; actionId: number; actorId: string; skillId: string; targetId: string; damage: number; targetHp: number; energyGained: number; actorEnergy: number }
   | { type: "action-finished"; actionId: number; actorId: string; skillId: string }
   | { type: "action-aborted"; actionId: number; actorId: string; skillId: string; reason: string }
   | { type: "blocked"; reason: string }

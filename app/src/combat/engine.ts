@@ -11,6 +11,10 @@ export interface UnitSpawn {
   speed?: number;
   /** Overrides the manifest max HP when set. */
   maxHp?: number;
+  /** Overrides the manifest starting energy when set. */
+  startEnergy?: number;
+  /** Overrides the manifest energy cap when set. */
+  maxEnergy?: number;
 }
 
 function cloneState(state: BattleState): BattleState {
@@ -41,6 +45,8 @@ function winnerOf(units: UnitState[]): TeamId | null {
 
 function buildUnit(spawn: UnitSpawn, manifest: CharacterManifest): UnitState {
   const maxHp = spawn.maxHp ?? manifest.maxHp;
+  const maxEnergy = spawn.maxEnergy ?? manifest.maxEnergy;
+  const startEnergy = Math.min(maxEnergy, spawn.startEnergy ?? manifest.startEnergy);
   return {
     id: spawn.id,
     manifestId: manifest.id,
@@ -49,6 +55,8 @@ function buildUnit(spawn: UnitSpawn, manifest: CharacterManifest): UnitState {
     hp: maxHp,
     maxHp,
     speed: spawn.speed ?? manifest.speed,
+    energy: startEnergy,
+    maxEnergy,
     alive: true,
   };
 }
@@ -71,6 +79,12 @@ function validateSkillTiming(manifest: CharacterManifest): void {
     if (!ordered) {
       throw new Error(`Skill ${manifest.id}/${skill.id} has invalid timing markers.`);
     }
+    if (skill.energyCost < 0 || skill.energyGain < 0) {
+      throw new Error(`Skill ${manifest.id}/${skill.id} has negative energy values.`);
+    }
+  }
+  if (manifest.maxEnergy < 0 || manifest.startEnergy < 0 || manifest.startEnergy > manifest.maxEnergy) {
+    throw new Error(`Manifest ${manifest.id} has invalid energy bounds.`);
   }
 }
 
@@ -134,6 +148,19 @@ export class BattleEngine {
     return this.state.pending?.id ?? null;
   }
 
+  /** Upcoming living actors starting at the current turn (inclusive). */
+  turnQueue(limit = 8): string[] {
+    if (this.state.phase === "ended") return [];
+    const out: string[] = [];
+    const total = this.state.order.length;
+    for (let step = 0; step < total * 2 && out.length < limit; step += 1) {
+      const id = this.state.order[(this.state.turnIndex + step) % total];
+      const unit = this.unit(id);
+      if (unit?.alive) out.push(id);
+    }
+    return out;
+  }
+
   reset(seed = this.state.seed): BattleState {
     const spawns: UnitSpawn[] = this.state.units.map((unit) => ({
       id: unit.id,
@@ -142,6 +169,7 @@ export class BattleEngine {
       label: unit.label,
       speed: unit.speed,
       maxHp: unit.maxHp,
+      maxEnergy: unit.maxEnergy,
     }));
     this.state = new BattleEngine(seed, spawns).state;
     return this.getState();
@@ -158,6 +186,9 @@ export class BattleEngine {
     if (!manifest) return { ok: false, reason: "Missing character manifest." };
     const skill = skillOf(manifest, skillId);
     if (!skill) return { ok: false, reason: "Unknown skill." };
+    if (actor.energy < skill.energyCost) {
+      return { ok: false, reason: `Need ${skill.energyCost} energy (have ${actor.energy}).` };
+    }
     const target = this.unit(targetId);
     if (!target) return { ok: false, reason: "Unknown target." };
     if (!target.alive) return { ok: false, reason: "Target is already defeated." };
@@ -172,11 +203,30 @@ export class BattleEngine {
       this.state.log.push(blocked);
       return [blocked];
     }
+    const actor = this.unit(actorId)!;
+    const manifest = manifestOf(actor.manifestId)!;
+    const skill = skillOf(manifest, skillId)!;
+    actor.energy = Math.max(0, actor.energy - skill.energyCost);
     this.state.actionSeq += 1;
     const actionId = this.state.actionSeq;
     this.state.phase = "acting";
-    this.state.pending = { id: actionId, actorId, skillId, targetId, contactApplied: false };
-    const started: BattleEvent = { type: "action-started", actionId, actorId, skillId, targetId };
+    this.state.pending = {
+      id: actionId,
+      actorId,
+      skillId,
+      targetId,
+      contactApplied: false,
+      energySpent: skill.energyCost,
+    };
+    const started: BattleEvent = {
+      type: "action-started",
+      actionId,
+      actorId,
+      skillId,
+      targetId,
+      energySpent: skill.energyCost,
+      energyLeft: actor.energy,
+    };
     this.state.log.push(started);
     return [started];
   }
@@ -215,6 +265,8 @@ export class BattleEngine {
     pending.contactApplied = true;
     const damage = Math.max(0, skill.damage);
     target.hp = Math.max(0, target.hp - damage);
+    const gained = Math.max(0, skill.energyGain);
+    actor.energy = Math.min(actor.maxEnergy, actor.energy + gained);
     const events: BattleEvent[] = [
       {
         type: "contact",
@@ -224,6 +276,8 @@ export class BattleEngine {
         targetId: pending.targetId,
         damage,
         targetHp: target.hp,
+        energyGained: gained,
+        actorEnergy: actor.energy,
       },
     ];
     if (target.hp === 0) {
@@ -286,7 +340,7 @@ export class BattleEngine {
   /**
    * Cancels the active action and keeps the same actor's turn.
    * Already-applied contact damage is not rolled back.
-   * Pre-contact abort leaves HP unchanged.
+   * Pre-contact abort refunds spent energy and leaves HP unchanged.
    */
   abortAction(reason: string, actionId?: number): BattleEvent[] {
     const pending = this.state.pending;
@@ -299,6 +353,10 @@ export class BattleEngine {
       const blocked: BattleEvent = { type: "blocked", reason: "Stale action abort ignored." };
       this.state.log.push(blocked);
       return [blocked];
+    }
+    if (!pending.contactApplied && pending.energySpent > 0) {
+      const actor = this.unit(pending.actorId);
+      if (actor) actor.energy = Math.min(actor.maxEnergy, actor.energy + pending.energySpent);
     }
     const aborted: BattleEvent = {
       type: "action-aborted",

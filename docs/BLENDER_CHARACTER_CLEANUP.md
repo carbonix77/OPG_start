@@ -1,8 +1,8 @@
 # Blender character-cleanup experiment (gated)
 
-**Status:** Blender is **not installed** on this machine (checked `Program Files\Blender Foundation` and LocalAppData). No silent install.
+**Status:** Owner authorized existing install at `D:\blender\blender.exe` (verified Blender 5.2.2 LTS). Do not re-download or reinstall.
 
-**Owner action required before any Blender work:** approve installing Blender (recommended: latest LTS from blender.org). Until then, Cursor prepares packages and docs only.
+**Batch export:** `python tools/export_all_characters.py` → local `private-assets/glb/*.glb` + `reports/GLB_EXPORT_MATRIX.md`.
 
 ## Rules
 - Offline experiment only. Does **not** replace the working Noesis → Babylon battle path yet.

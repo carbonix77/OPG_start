@@ -1,3 +1,5 @@
+export { chooseEnemyAction } from "./ai";
+export type { EnemyDecision } from "./ai";
 export { BattleEngine, makeBalancedFiveVFive } from "./engine";
 export type { UnitSpawn } from "./engine";
 export {
@@ -8,6 +10,7 @@ export {
   USOPP_MANIFEST,
   ZORO_MANIFEST,
   manifestOf,
+  primarySkills,
   skillOf,
 } from "./manifests";
 export { createRng } from "./rng";

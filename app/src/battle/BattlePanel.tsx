@@ -5,7 +5,9 @@ import {
   SANJI_MANIFEST,
   USOPP_MANIFEST,
   ZORO_MANIFEST,
+  chooseEnemyAction,
   manifestOf,
+  primarySkills,
   skillOf,
   type BattleEvent,
   type BattleState,
@@ -32,9 +34,9 @@ function formatEvent(event: BattleEvent): string {
     case "turn":
       return `Turn ${event.turnIndex}: ${event.actorId}`;
     case "action-started":
-      return `#${event.actionId} ${event.actorId} starts ${event.skillId} → ${event.targetId}`;
+      return `#${event.actionId} ${event.actorId} ${event.skillId} → ${event.targetId} (spent ${event.energySpent}, left ${event.energyLeft})`;
     case "contact":
-      return `#${event.actionId} contact ${event.damage} dmg. ${event.targetId} HP ${event.targetHp}`;
+      return `#${event.actionId} contact ${event.damage} dmg. ${event.targetId} HP ${event.targetHp}. Energy +${event.energyGained} → ${event.actorEnergy}`;
     case "action-finished":
       return `#${event.actionId} ${event.actorId} finished ${event.skillId}`;
     case "action-aborted":
@@ -57,11 +59,18 @@ function makeEngine() {
   ]);
 }
 
-const ASSET_BY_UNIT: Record<string, string> = {
+const NOESIS_ASSETS: Record<string, string> = {
   [ZORO_ID]: "noesis-roster",
   [SANJI_ID]: "noesis-sanji",
   [NAMI_ID]: "noesis-nami",
   [USOPP_ID]: "noesis-usopp",
+};
+
+const GLB_ASSETS: Record<string, string> = {
+  [ZORO_ID]: "glb-zoro",
+  [SANJI_ID]: "glb-sanji",
+  [NAMI_ID]: "glb-nami",
+  [USOPP_ID]: "glb-usopp",
 };
 
 const MANIFEST_BY_UNIT = {
@@ -83,9 +92,9 @@ export function BattlePanel(props: {
   const [targetId, setTargetId] = useState(NAMI_ID);
   const [log, setLog] = useState<string[]>([]);
   const [loadNotes, setLoadNotes] = useState<string[]>([]);
-  /** Diagnostic: draw owner-hidden submeshes. Presentation default keeps them off. */
   const [showAllMeshes, setShowAllMeshes] = useState(false);
-  const [idlePhaseNote, setIdlePhaseNote] = useState("");
+  /** Noesis remains the battle default until GLB parity is accepted. */
+  const [assetSource, setAssetSource] = useState<"noesis" | "glb">("noesis");
   const [benchNote, setBenchNote] = useState("");
   const liveAction = useRef<{ engineId: number; presentToken: number; unitId: string } | null>(null);
   const mounted = useRef(true);
@@ -152,17 +161,18 @@ export function BattlePanel(props: {
     markers.sync(markerSpecs);
     arenaRef.current = arena;
     markersRef.current = markers;
-    // Landscape side-ish view from +X with a slight yaw so both bravo slots stay in frame.
     scene.camera.setTarget(arena.cameraTarget());
     scene.camera.radius = 720;
     scene.camera.alpha = 0.22;
     scene.camera.beta = 1.12;
 
+    const assetByUnit = assetSource === "glb" ? GLB_ASSETS : NOESIS_ASSETS;
+
     const load = async () => {
       const notes: string[] = [];
       const results: CharacterLoadResult[] = [];
       for (const [index, unitId] of FIGHTER_IDS.entries()) {
-        const assetId = ASSET_BY_UNIT[unitId];
+        const assetId = assetByUnit[unitId];
         const asset = LOCAL_ASSETS.find((item) => item.id === assetId);
         const preview = previewForAsset(assetId);
         if (!asset || !preview) {
@@ -210,9 +220,7 @@ export function BattlePanel(props: {
       if (markersRef.current === markers) markersRef.current = null;
       setReady(false);
     };
-    // Intentionally omit `props` / onStatus identity so App status re-renders do not dispose fighters.
-    // showAllMeshes is applied after load via its own effect so toggling does not reload.
-  }, [props.active, props.scene, engine, slots]);
+  }, [props.active, props.scene, engine, slots, assetSource]);
 
   useEffect(() => {
     for (const unit of charactersRef.current.values()) unit.setShowAllMeshes(showAllMeshes);
@@ -226,7 +234,7 @@ export function BattlePanel(props: {
       markersRef.current?.setAlive(unit.id, unit.alive);
       charactersRef.current.get(unit.id)?.setEnabled(unit.alive);
     }
-    if (events.length) setLog((prev) => [...events.map(formatEvent), ...prev].slice(0, 30));
+    if (events.length) setLog((prev) => [...events.map(formatEvent), ...prev].slice(0, 40));
   };
 
   const livingEnemies = state.units.filter((unit) => unit.team === "bravo" && unit.alive);
@@ -235,12 +243,8 @@ export function BattlePanel(props: {
   const actor = state.units.find((unit) => unit.id === actorId);
   const actorManifest = actor ? manifestOf(actor.manifestId) : null;
   const playerActor = actorId && ALLY_IDS.has(actorId) ? actorId : null;
-  const canPlayerAct =
-    ready &&
-    !busy &&
-    !!playerActor &&
-    selected !== "" &&
-    engine.canAct(playerActor, "basic", selected).ok;
+  const playerSkills = actorManifest && playerActor ? primarySkills(actorManifest) : [];
+  const queue = engine.turnQueue(6);
 
   useEffect(() => {
     arenaRef.current?.highlight(selected || null);
@@ -319,20 +323,15 @@ export function BattlePanel(props: {
         setBusy(false);
         return;
       }
-      const unit = current.units.find((row) => row.id === nextActor);
-      if (!unit?.alive) {
+      const decision = chooseEnemyAction(engine);
+      if (!decision) {
         setBusy(false);
-        return;
-      }
-      const target =
-        current.units.find((row) => row.alive && row.team !== unit.team && row.id === selected) ??
-        current.units.find((row) => row.alive && row.team !== unit.team);
-      if (!target) {
-        setBusy(false);
+        props.onStatus(`Enemy ${nextActor} has no legal action.`);
         return;
       }
       setBusy(true);
-      playUnitSkill(unit.id, "basic", target.id, session, () => {
+      props.onStatus(`AI ${decision.reason}`);
+      playUnitSkill(decision.actorId, decision.skillId, decision.targetId, session, () => {
         if (!mounted.current || session !== sessionRef.current) return;
         const follow = engine.currentActorId();
         if (follow && !ALLY_IDS.has(follow) && engine.getState().phase !== "ended") {
@@ -346,11 +345,12 @@ export function BattlePanel(props: {
     step();
   };
 
-  const runPlayerBasic = () => {
-    if (!canPlayerAct || !selected || !playerActor) return;
+  const runPlayerSkill = (skillId: string) => {
+    if (!ready || busy || !playerActor || !selected) return;
+    if (!engine.canAct(playerActor, skillId, selected).ok) return;
     const session = sessionRef.current;
     setBusy(true);
-    playUnitSkill(playerActor, "basic", selected, session, () => {
+    playUnitSkill(playerActor, skillId, selected, session, () => {
       if (!mounted.current || session !== sessionRef.current) return;
       autoResolveUntilPlayerOrEnd(session);
     });
@@ -364,7 +364,7 @@ export function BattlePanel(props: {
     for (const unit of charactersRef.current.values()) unit.cancelAction();
     engine.reset(SEED);
     setLog([]);
-    setIdlePhaseNote("");
+    setBenchNote("");
     refresh();
     for (const unitId of FIGHTER_IDS) {
       charactersRef.current.get(unitId)?.playIdle(MANIFEST_BY_UNIT[unitId].idleClip);
@@ -375,24 +375,7 @@ export function BattlePanel(props: {
       charactersRef.current.get(unit.id)?.setEnabled(true);
     }
     setTargetId(NAMI_ID);
-    props.onStatus("2v2 reset. Zoro+Sanji vs Nami+Usopp restored to idle.");
-  };
-
-  const holdSanjiIdlePhase = (normalized: number) => {
-    const sanji = charactersRef.current.get(SANJI_ID);
-    if (!sanji) return;
-    const idleClip = SANJI_MANIFEST.idleClip ?? "Sanji_0000";
-    const note = sanji.scrubClip(idleClip, normalized);
-    setIdlePhaseNote(note);
-    props.onStatus(note);
-  };
-
-  const loopSanjiIdle = () => {
-    const sanji = charactersRef.current.get(SANJI_ID);
-    if (!sanji) return;
-    const note = sanji.playIdle(SANJI_MANIFEST.idleClip);
-    setIdlePhaseNote(note);
-    props.onStatus(note);
+    props.onStatus("2v2 reset. Energy and HP restored.");
   };
 
   const runHeapCycles = async () => {
@@ -417,70 +400,92 @@ export function BattlePanel(props: {
   return (
     <div className="battle-panel">
       <h1>Battle preview 2v2</h1>
-      <p className="note">
-        Player controls the current alive ally (Zoro or Sanji). Bravo is textured Nami and Usopp on their own rigs.
-        Foot tags show label[id] at each root for identity checks.
-      </p>
+      <p className="note">Basic generates energy. Special costs 3. Bravo uses seeded AI.</p>
+      {state.phase === "ended" ? (
+        <p className="battle-result">{state.winner === "alpha" ? "Victory" : "Defeat"} — winner {state.winner}</p>
+      ) : null}
       <div className="battle-hp">
         {state.units.map((unit) => (
-          <p key={unit.id} className={unit.id === actorId ? "battle-actor" : undefined}>
-            {unit.label} HP {unit.hp}/{unit.maxHp} {unit.alive ? "" : "(down)"} [{unit.team}]
-          </p>
+          <div key={unit.id} className={`battle-unit${unit.id === actorId ? " battle-actor" : ""}${unit.alive ? "" : " battle-down"}`}>
+            <div className="battle-unit-label">
+              {unit.label} [{unit.team}] {unit.alive ? "" : "(KO)"}
+            </div>
+            <div className="battle-bar">
+              <span style={{ width: `${Math.max(0, (unit.hp / unit.maxHp) * 100)}%` }} />
+            </div>
+            <div className="battle-unit-meta">
+              HP {unit.hp}/{unit.maxHp} · EN {unit.energy}/{unit.maxEnergy}
+            </div>
+          </div>
         ))}
         <p className="note">
           Phase {state.phase}. Actor {actorId ?? "—"}
           {actorManifest ? ` (${actorManifest.label})` : ""}. Seed {state.seed}.
-          {state.winner ? ` Winner ${state.winner}.` : ""}
         </p>
+        <p className="note">Queue: {queue.join(" → ") || "—"}</p>
       </div>
       <label>
         Target
         <select
           value={selected}
-          disabled={busy || livingEnemies.length === 0}
+          disabled={busy || livingEnemies.length === 0 || state.phase === "ended"}
           onChange={(event) => setTargetId(event.target.value)}
         >
           {livingEnemies.map((unit) => (
             <option key={unit.id} value={unit.id}>
-              {unit.label}
+              {unit.label} ({unit.hp}/{unit.maxHp})
             </option>
           ))}
         </select>
       </label>
       <div className="row">
-        <button type="button" disabled={!canPlayerAct} onClick={runPlayerBasic}>
-          {playerActor === SANJI_ID ? "Sanji basic" : playerActor === ZORO_ID ? "Zoro basic" : "Basic Attack"}
-        </button>
+        {playerSkills.map((skill) => {
+          const can =
+            !!playerActor &&
+            selected !== "" &&
+            ready &&
+            !busy &&
+            state.phase !== "ended" &&
+            engine.canAct(playerActor, skill.id, selected).ok;
+          const tip = playerActor
+            ? engine.canAct(playerActor, skill.id, selected).reason
+            : "Waiting for ally turn";
+          return (
+            <button
+              key={skill.id}
+              type="button"
+              disabled={!can}
+              title={tip}
+              onClick={() => runPlayerSkill(skill.id)}
+            >
+              {skill.label}
+              {skill.energyCost > 0 ? ` (−${skill.energyCost})` : " (+1 EN)"}
+            </button>
+          );
+        })}
         <button type="button" disabled={busy} onClick={reset}>
           Reset
         </button>
       </div>
+      <label>
+        Asset source
+        <select
+          value={assetSource}
+          disabled={busy}
+          onChange={(event) => setAssetSource(event.target.value === "glb" ? "glb" : "noesis")}
+        >
+          <option value="noesis">Noesis glTF (default)</option>
+          <option value="glb">Blender GLB (local validation)</option>
+        </select>
+      </label>
       <label className="check">
         <input
           type="checkbox"
           checked={showAllMeshes}
           onChange={(event) => setShowAllMeshes(event.target.checked)}
         />
-        Show All meshes (diagnostic). Off keeps the owner hide preset.
+        Show All meshes (diagnostic)
       </label>
-      <div className="row">
-        <button type="button" disabled={!ready || busy} onClick={() => holdSanjiIdlePhase(0)}>
-          Sanji idle t0
-        </button>
-        <button type="button" disabled={!ready || busy} onClick={() => holdSanjiIdlePhase(0.25)}>
-          t.25
-        </button>
-        <button type="button" disabled={!ready || busy} onClick={() => holdSanjiIdlePhase(0.5)}>
-          t.5
-        </button>
-        <button type="button" disabled={!ready || busy} onClick={() => holdSanjiIdlePhase(0.75)}>
-          t.75
-        </button>
-        <button type="button" disabled={!ready || busy} onClick={loopSanjiIdle}>
-          Loop idle
-        </button>
-      </div>
-      {idlePhaseNote ? <p className="note">{idlePhaseNote}</p> : null}
       <div className="row">
         <button type="button" disabled={!ready || busy} onClick={() => void runHeapCycles()}>
           Heap ×5 reset
