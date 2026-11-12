@@ -4,6 +4,8 @@ export type TeamId = "alpha" | "bravo";
 
 export type BattlePhase = "idle" | "acting" | "ended";
 
+export type SkillTargetMode = "enemy" | "self";
+
 export interface SkillDef {
   id: string;
   label: string;
@@ -19,6 +21,13 @@ export interface SkillDef {
   energyCost: number;
   /** Energy gained when contact lands (capped by unit maxEnergy). */
   energyGain: number;
+  /** Who the skill may legally target. Default enemy. */
+  targetMode: SkillTargetMode;
+  /**
+   * If set, after contact the actor gains this many Guard charges.
+   * Each incoming hit consumes one charge and multiplies damage by guardFactor.
+   */
+  grantGuardCharges?: number;
 }
 
 export interface CharacterManifest {
@@ -46,6 +55,8 @@ export interface UnitState {
   speed: number;
   energy: number;
   maxEnergy: number;
+  /** Remaining Guard charges (tactical). */
+  guardCharges: number;
   alive: boolean;
 }
 
@@ -75,9 +86,25 @@ export type BattleEvent =
   | { type: "battle-started"; seed: number; order: string[] }
   | { type: "turn"; turnIndex: number; actorId: string }
   | { type: "action-started"; actionId: number; actorId: string; skillId: string; targetId: string; energySpent: number; energyLeft: number }
-  | { type: "contact"; actionId: number; actorId: string; skillId: string; targetId: string; damage: number; targetHp: number; energyGained: number; actorEnergy: number }
+  | {
+      type: "contact";
+      actionId: number;
+      actorId: string;
+      skillId: string;
+      targetId: string;
+      damage: number;
+      rawDamage: number;
+      guarded: boolean;
+      targetHp: number;
+      energyGained: number;
+      actorEnergy: number;
+      guardChargesGranted: number;
+    }
   | { type: "action-finished"; actionId: number; actorId: string; skillId: string }
   | { type: "action-aborted"; actionId: number; actorId: string; skillId: string; reason: string }
   | { type: "blocked"; reason: string }
   | { type: "unit-defeated"; unitId: string }
   | { type: "battle-ended"; winner: TeamId };
+
+/** Incoming damage multiplier while a Guard charge remains. */
+export const GUARD_DAMAGE_FACTOR = 0.5;

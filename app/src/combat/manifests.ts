@@ -1,21 +1,40 @@
 import type { CharacterManifest, SkillDef } from "./types";
 
 function skill(
-  partial: Omit<SkillDef, "energyCost" | "energyGain"> & Partial<Pick<SkillDef, "energyCost" | "energyGain">>,
+  partial: Omit<SkillDef, "energyCost" | "energyGain" | "targetMode"> &
+    Partial<Pick<SkillDef, "energyCost" | "energyGain" | "targetMode" | "grantGuardCharges">>,
 ): SkillDef {
   return {
     ...partial,
     energyCost: partial.energyCost ?? 0,
     energyGain: partial.energyGain ?? 0,
+    targetMode: partial.targetMode ?? "enemy",
   };
+}
+
+function guardSkill(clipId: string | null): SkillDef {
+  return skill({
+    id: "guard",
+    label: "Guard",
+    damage: 0,
+    startup: 0,
+    contact: 0,
+    recovery: 1,
+    clipId,
+    confidence: "synthetic",
+    energyCost: 1,
+    energyGain: 0,
+    targetMode: "self",
+    grantGuardCharges: 1,
+  });
 }
 
 /**
  * Skill timings are preview markers for gameplay sync.
  * They are not recovered OPPW4 frame data.
  *
- * Energy: Basic costs 0 and gains 1. Special costs 3 and gains 0.
- * Caps live on each manifest (default 5). Extensible to 5v5 / many characters.
+ * Energy: Basic costs 0 and gains 1. Special costs 3 and gains 0. Guard costs 1.
+ * Guard is a custom tactical choice (halves the next incoming hit). Not an authentic PW4 move.
  */
 export const ZORO_MANIFEST: CharacterManifest = {
   id: "zoro-roster",
@@ -75,6 +94,7 @@ export const ZORO_MANIFEST: CharacterManifest = {
       energyCost: 3,
       energyGain: 0,
     }),
+    guardSkill("Zoro_0000"),
   ],
 };
 
@@ -100,6 +120,7 @@ export const DUMMY_MANIFEST: CharacterManifest = {
       energyCost: 0,
       energyGain: 1,
     }),
+    guardSkill(null),
   ],
 };
 
@@ -150,13 +171,10 @@ export const FIXTURE_MANIFEST: CharacterManifest = {
       energyCost: 3,
       energyGain: 0,
     }),
+    guardSkill("fixture-idle"),
   ],
 };
 
-/**
- * Sanji with extracted idle/basic (0000/0500) plus special candidates.
- * Texture sheets stay Sanji-local under preview/textures/sanji.
- */
 export const SANJI_MANIFEST: CharacterManifest = {
   id: "sanji-roster",
   label: "Sanji roster",
@@ -191,10 +209,10 @@ export const SANJI_MANIFEST: CharacterManifest = {
       energyCost: 3,
       energyGain: 0,
     }),
+    guardSkill("Sanji_0000"),
   ],
 };
 
-/** Nami idle + basic + special from own G1As. map.json sheet assignment is provisional. */
 export const NAMI_MANIFEST: CharacterManifest = {
   id: "nami-roster",
   label: "Nami roster",
@@ -229,10 +247,10 @@ export const NAMI_MANIFEST: CharacterManifest = {
       energyCost: 3,
       energyGain: 0,
     }),
+    guardSkill("Nami_0000"),
   ],
 };
 
-/** Usopp idle + basic + special from own G1As. map.json sheet assignment is provisional. */
 export const USOPP_MANIFEST: CharacterManifest = {
   id: "usopp-roster",
   label: "Usopp roster",
@@ -267,6 +285,7 @@ export const USOPP_MANIFEST: CharacterManifest = {
       energyCost: 3,
       energyGain: 0,
     }),
+    guardSkill("Usopp_0000"),
   ],
 };
 
@@ -284,12 +303,13 @@ export function manifestOf(id: string): CharacterManifest | null {
 }
 
 export function skillOf(manifest: CharacterManifest, skillId: string) {
-  return manifest.skills.find((skill) => skill.id === skillId) ?? null;
+  return manifest.skills.find((row) => row.id === skillId) ?? null;
 }
 
-/** Compact player/enemy command set used by the 2v2 UI and AI. */
+/** Compact command set: Basic, Special, Guard. */
 export function primarySkills(manifest: CharacterManifest): SkillDef[] {
   const basic = skillOf(manifest, "basic") ?? skillOf(manifest, "action-a") ?? skillOf(manifest, "dummy-poke");
   const special = skillOf(manifest, "special");
-  return [basic, special].filter((row): row is SkillDef => !!row);
+  const guard = skillOf(manifest, "guard");
+  return [basic, special, guard].filter((row): row is SkillDef => !!row);
 }

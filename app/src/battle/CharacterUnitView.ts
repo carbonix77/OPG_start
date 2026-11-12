@@ -16,6 +16,8 @@ export interface CharacterLoadResult {
   unitId: string;
   assetId: string;
   clips: string[];
+  /** Named clip → duration in seconds (Babylon to-from / fps when available). */
+  clipDurations: Record<string, number>;
   meshes: number;
   skeletons: number;
   joints: number;
@@ -23,6 +25,10 @@ export interface CharacterLoadResult {
   textured: boolean;
   textureNotes: number;
   textureError: string;
+  /** Unique texture uniqueIds found on materials before any temporary override. */
+  embeddedTextures: number;
+  /** True when temporary look was skipped so GLB embedded materials stay visible. */
+  usedEmbeddedOnly: boolean;
 }
 
 /**
@@ -58,9 +64,15 @@ export class CharacterUnitView {
     this.root = new TransformNode(`character-unit-${unitId}`, scene);
   }
 
-  async load(asset: LocalAsset, preview: PreviewConfig | null, offset: [number, number, number]): Promise<CharacterLoadResult> {
+  async load(
+    asset: LocalAsset,
+    preview: PreviewConfig | null,
+    offset: [number, number, number],
+    options?: { preferEmbeddedTextures?: boolean },
+  ): Promise<CharacterLoadResult> {
     this.disposeContent();
     const started = performance.now();
+    const preferEmbedded = options?.preferEmbeddedTextures === true;
     const { rootUrl, fileName } = assetUrl(asset.relativePath);
     const container = await SceneLoader.LoadAssetContainerAsync(rootUrl, fileName, this.scene);
     if (this.disposed) {
@@ -116,10 +128,17 @@ export class CharacterUnitView {
     this.root.rotation.y = offset[0] < 0 ? Math.PI / 2 : -Math.PI / 2;
     this.startRecenter();
     this.snapToSlot();
-    let textured = false;
-    let textureNotes = 0;
+    const embeddedIds = new Set<number>();
+    for (const mesh of body) {
+      const mat = mesh.material as { getActiveTextures?: () => Array<{ uniqueId: number }> } | null;
+      for (const tex of mat?.getActiveTextures?.() ?? []) embeddedIds.add(tex.uniqueId);
+    }
+    const embeddedTextures = embeddedIds.size;
+    let textured = embeddedTextures > 0;
+    let textureNotes = embeddedTextures;
     let textureError = "";
-    if (preview?.textureDir) {
+    let usedEmbeddedOnly = preferEmbedded;
+    if (!preferEmbedded && preview?.textureDir) {
       try {
         this.look = await applyTemporaryLook(this.scene, body, {
           textureDir: preview.textureDir,
@@ -136,17 +155,27 @@ export class CharacterUnitView {
         }
         textured = this.look.notes.some((note) => note.sheet !== "");
         textureNotes = this.look.notes.filter((note) => note.sheet !== "").length;
+        usedEmbeddedOnly = false;
       } catch (error) {
         textureError = error instanceof Error ? error.message : String(error);
       }
-    } else {
+    } else if (!preferEmbedded) {
       textureError = "No textureDir in preview config.";
+    } else if (embeddedTextures === 0) {
+      textureError = "GLB embedded textures: 0 (self-contained check failed).";
+    }
+    const clipDurations: Record<string, number> = {};
+    for (const group of this.groups) {
+      const span = Math.max(0, group.to - group.from);
+      const fps = group.targetedAnimations[0]?.animation?.framePerSecond || 30;
+      clipDurations[group.name] = Number((span / fps).toFixed(3));
     }
     const joints = container.skeletons.reduce((sum, skeleton) => sum + skeleton.bones.length, 0);
     return {
       unitId: this.unitId,
       assetId: asset.id,
       clips: this.groups.map((group) => group.name),
+      clipDurations,
       meshes: body.length,
       skeletons: container.skeletons.length,
       joints,
@@ -154,6 +183,8 @@ export class CharacterUnitView {
       textured,
       textureNotes,
       textureError,
+      embeddedTextures,
+      usedEmbeddedOnly,
     };
   }
 

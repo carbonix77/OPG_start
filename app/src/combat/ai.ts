@@ -10,8 +10,11 @@ export interface EnemyDecision {
 }
 
 /**
- * Deterministic bravo policy: prefer Special when affordable (seeded), else Basic.
- * Target is the living alpha with lowest HP, ties broken by unit id.
+ * Deterministic bravo policy:
+ * - Guard when low HP and energy allows (seeded)
+ * - else Special when affordable (seeded)
+ * - else Basic
+ * Attack target: living alpha with lowest HP (id tie-break).
  */
 export function chooseEnemyAction(engine: BattleEngine): EnemyDecision | null {
   const state = engine.getState();
@@ -22,17 +25,25 @@ export function chooseEnemyAction(engine: BattleEngine): EnemyDecision | null {
   const manifest = manifestOf(actor.manifestId);
   if (!manifest) return null;
 
+  const skills = primarySkills(manifest);
+  const basic = skills.find((row) => row.id === "basic" || row.energyCost === 0) ?? skills[0];
+  const special = skills.find((row) => row.id === "special");
+  const guard = skills.find((row) => row.id === "guard");
+  const rng = createRng(state.seed * 1009 + state.turnIndex * 17 + actorId.length * 31);
+  const roll = rng();
+
+  if (guard && actor.energy >= guard.energyCost && actor.hp / actor.maxHp <= 0.45 && roll < 0.4) {
+    const check = engine.canAct(actorId, guard.id, actorId);
+    if (check.ok) {
+      return { actorId, skillId: guard.id, targetId: actorId, reason: `guard-low-hp (${guard.label})` };
+    }
+  }
+
   const targets = state.units
     .filter((unit) => unit.alive && unit.team === "alpha")
     .sort((a, b) => a.hp - b.hp || a.id.localeCompare(b.id));
   const target = targets[0];
   if (!target) return null;
-
-  const skills = primarySkills(manifest);
-  const basic = skills.find((row) => row.id === "basic" || row.energyCost === 0) ?? skills[0];
-  const special = skills.find((row) => row.id === "special");
-  const rng = createRng(state.seed * 1009 + state.turnIndex * 17 + actorId.length * 31);
-  const roll = rng();
 
   let skillId = basic?.id ?? "basic";
   let reason = "basic-fallback";
@@ -44,8 +55,7 @@ export function chooseEnemyAction(engine: BattleEngine): EnemyDecision | null {
     reason = "basic";
   }
 
-  const check = engine.canAct(actorId, skillId, target.id);
-  if (!check.ok && basic && skillId !== basic.id) {
+  if (!engine.canAct(actorId, skillId, target.id).ok && basic && skillId !== basic.id) {
     skillId = basic.id;
     reason = "special-blocked-basic";
   }

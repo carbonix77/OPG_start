@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BattleEngine,
+  LINEUP_2V2_STRAW_HAT,
   NAMI_MANIFEST,
   SANJI_MANIFEST,
   USOPP_MANIFEST,
   ZORO_MANIFEST,
   chooseEnemyAction,
+  lineupToSpawns,
   manifestOf,
   primarySkills,
   skillOf,
@@ -35,8 +37,11 @@ function formatEvent(event: BattleEvent): string {
       return `Turn ${event.turnIndex}: ${event.actorId}`;
     case "action-started":
       return `#${event.actionId} ${event.actorId} ${event.skillId} → ${event.targetId} (spent ${event.energySpent}, left ${event.energyLeft})`;
-    case "contact":
-      return `#${event.actionId} contact ${event.damage} dmg. ${event.targetId} HP ${event.targetHp}. Energy +${event.energyGained} → ${event.actorEnergy}`;
+    case "contact": {
+      const guardNote = event.guarded ? ` (guarded from ${event.rawDamage})` : "";
+      const granted = event.guardChargesGranted > 0 ? ` Guard+${event.guardChargesGranted}` : "";
+      return `#${event.actionId} contact ${event.damage} dmg${guardNote}. ${event.targetId} HP ${event.targetHp}. Energy +${event.energyGained} → ${event.actorEnergy}${granted}`;
+    }
     case "action-finished":
       return `#${event.actionId} ${event.actorId} finished ${event.skillId}`;
     case "action-aborted":
@@ -51,12 +56,7 @@ function formatEvent(event: BattleEvent): string {
 }
 
 function makeEngine() {
-  return new BattleEngine(SEED, [
-    { id: ZORO_ID, manifestId: ZORO_MANIFEST.id, team: "alpha", speed: 20, label: "Zoro" },
-    { id: SANJI_ID, manifestId: SANJI_MANIFEST.id, team: "alpha", speed: 18, label: "Sanji" },
-    { id: NAMI_ID, manifestId: NAMI_MANIFEST.id, team: "bravo", speed: 12, maxHp: 80, label: "Nami" },
-    { id: USOPP_ID, manifestId: USOPP_MANIFEST.id, team: "bravo", speed: 10, maxHp: 75, label: "Usopp" },
-  ]);
+  return new BattleEngine(SEED, lineupToSpawns(LINEUP_2V2_STRAW_HAT));
 }
 
 const NOESIS_ASSETS: Record<string, string> = {
@@ -182,13 +182,18 @@ export function BattlePanel(props: {
         const unit = new CharacterUnitView(unitId, scene.scene);
         charactersRef.current.set(unitId, unit);
         try {
-          const result = await unit.load(asset, preview, slots[index].position);
+          const result = await unit.load(asset, preview, slots[index].position, {
+            preferEmbeddedTextures: assetSource === "glb",
+          });
           if (cancelled || session !== sessionRef.current) return;
           unit.setShowAllMeshes(showAllMeshes);
           results.push(result);
           const slot = slots[index];
+          const durationNote = Object.entries(result.clipDurations)
+            .map(([name, sec]) => `${name}:${sec}s`)
+            .join(", ");
           notes.push(
-            `${unitId}←${asset.id} @ [${slot.position.join(",")}] ${result.meshes} meshes, clips ${result.clips.join(", ")}, ${result.loadMs} ms, textures ${result.textureNotes}${result.textureError ? ` (${result.textureError})` : ""}.`,
+            `${unitId}←${asset.id} @ [${slot.position.join(",")}] ${result.meshes} meshes, ${result.skeletons} skel/${result.joints} joints, clips ${result.clips.join(", ")}, durations [${durationNote}], ${result.loadMs} ms, textures ${result.textureNotes}, embedded ${result.embeddedTextures}${result.usedEmbeddedOnly ? " (embedded-only)" : ""}${result.textureError ? ` (${result.textureError})` : ""}.`,
           );
           unit.playIdle(MANIFEST_BY_UNIT[unitId].idleClip);
           markers.hidePlaceholder(unitId);
@@ -271,12 +276,20 @@ export function BattlePanel(props: {
       onDone();
       return;
     }
-    if (!character || !skill.clipId) {
+    // Rendered battles only auto-resolve contact without a clip for declared synthetic units.
+    const synthetic = !manifest.assetId;
+    if (!character || (!skill.clipId && synthetic)) {
       const events = [...engine.applyContact(engineId), ...engine.finishAction(engineId)];
       markersRef.current?.flash(target);
       charactersRef.current.get(target)?.flash();
       refresh(events.filter((event) => event.type !== "blocked"));
       onDone();
+      return;
+    }
+    if (!skill.clipId) {
+      refresh(engine.abortAction(`Unit ${unitId} has no clip for ${skillId}.`, engineId));
+      onDone();
+      props.onStatus(`Missing clip for ${skillId}; action aborted (no silent damage).`);
       return;
     }
     const played = character.playSkill(
@@ -346,11 +359,14 @@ export function BattlePanel(props: {
   };
 
   const runPlayerSkill = (skillId: string) => {
-    if (!ready || busy || !playerActor || !selected) return;
-    if (!engine.canAct(playerActor, skillId, selected).ok) return;
+    if (!ready || busy || !playerActor) return;
+    const skill = actorManifest ? skillOf(actorManifest, skillId) : null;
+    const target = skill?.targetMode === "self" ? playerActor : selected;
+    if (!target) return;
+    if (!engine.canAct(playerActor, skillId, target).ok) return;
     const session = sessionRef.current;
     setBusy(true);
-    playUnitSkill(playerActor, skillId, selected, session, () => {
+    playUnitSkill(playerActor, skillId, target, session, () => {
       if (!mounted.current || session !== sessionRef.current) return;
       autoResolveUntilPlayerOrEnd(session);
     });
@@ -399,112 +415,128 @@ export function BattlePanel(props: {
 
   return (
     <div className="battle-panel">
-      <h1>Battle preview 2v2</h1>
-      <p className="note">Basic generates energy. Special costs 3. Bravo uses seeded AI.</p>
-      {state.phase === "ended" ? (
-        <p className="battle-result">{state.winner === "alpha" ? "Victory" : "Defeat"} — winner {state.winner}</p>
-      ) : null}
-      <div className="battle-hp">
-        {state.units.map((unit) => (
-          <div key={unit.id} className={`battle-unit${unit.id === actorId ? " battle-actor" : ""}${unit.alive ? "" : " battle-down"}`}>
-            <div className="battle-unit-label">
-              {unit.label} [{unit.team}] {unit.alive ? "" : "(KO)"}
-            </div>
-            <div className="battle-bar">
-              <span style={{ width: `${Math.max(0, (unit.hp / unit.maxHp) * 100)}%` }} />
-            </div>
-            <div className="battle-unit-meta">
-              HP {unit.hp}/{unit.maxHp} · EN {unit.energy}/{unit.maxEnergy}
-            </div>
-          </div>
-        ))}
-        <p className="note">
-          Phase {state.phase}. Actor {actorId ?? "—"}
-          {actorManifest ? ` (${actorManifest.label})` : ""}. Seed {state.seed}.
-        </p>
-        <p className="note">Queue: {queue.join(" → ") || "—"}</p>
-      </div>
-      <label>
-        Target
-        <select
-          value={selected}
-          disabled={busy || livingEnemies.length === 0 || state.phase === "ended"}
-          onChange={(event) => setTargetId(event.target.value)}
-        >
-          {livingEnemies.map((unit) => (
-            <option key={unit.id} value={unit.id}>
-              {unit.label} ({unit.hp}/{unit.maxHp})
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className="row">
-        {playerSkills.map((skill) => {
-          const can =
-            !!playerActor &&
-            selected !== "" &&
-            ready &&
-            !busy &&
-            state.phase !== "ended" &&
-            engine.canAct(playerActor, skill.id, selected).ok;
-          const tip = playerActor
-            ? engine.canAct(playerActor, skill.id, selected).reason
-            : "Waiting for ally turn";
-          return (
-            <button
-              key={skill.id}
-              type="button"
-              disabled={!can}
-              title={tip}
-              onClick={() => runPlayerSkill(skill.id)}
+      <div className="battle-hud">
+        <div className="battle-hud-top">
+          <strong>2v2</strong>
+          <span>
+            Actor {actor?.label ?? "—"} · EN {actor?.energy ?? 0}/{actor?.maxEnergy ?? 0}
+            {actor && actor.guardCharges > 0 ? ` · Guard×${actor.guardCharges}` : ""}
+          </span>
+          <span>Queue {queue.map((id) => state.units.find((u) => u.id === id)?.label ?? id).join(" → ") || "—"}</span>
+        </div>
+        {state.phase === "ended" ? (
+          <p className="battle-result">{state.winner === "alpha" ? "Victory" : "Defeat"} — winner {state.winner}</p>
+        ) : null}
+        <div className="battle-hp battle-hp-compact">
+          {state.units.map((unit) => (
+            <div
+              key={unit.id}
+              className={`battle-unit${unit.id === actorId ? " battle-actor" : ""}${unit.alive ? "" : " battle-down"}`}
             >
-              {skill.label}
-              {skill.energyCost > 0 ? ` (−${skill.energyCost})` : " (+1 EN)"}
+              <div className="battle-unit-label">
+                {unit.label}
+                {unit.alive ? "" : " KO"}
+                {unit.guardCharges > 0 ? ` G${unit.guardCharges}` : ""}
+              </div>
+              <div className="battle-bar">
+                <span style={{ width: `${Math.max(0, (unit.hp / unit.maxHp) * 100)}%` }} />
+              </div>
+              <div className="battle-unit-meta">
+                {unit.hp}/{unit.maxHp} · EN {unit.energy}/{unit.maxEnergy}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="battle-commands">
+          <label className="battle-target">
+            Target
+            <select
+              value={selected}
+              disabled={busy || livingEnemies.length === 0 || state.phase === "ended"}
+              onChange={(event) => setTargetId(event.target.value)}
+            >
+              {livingEnemies.map((unit) => (
+                <option key={unit.id} value={unit.id}>
+                  {unit.label} ({unit.hp}/{unit.maxHp})
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="row battle-skill-row">
+            {playerSkills.map((skill) => {
+              const target = skill.targetMode === "self" ? playerActor ?? "" : selected;
+              const check =
+                playerActor && target
+                  ? engine.canAct(playerActor, skill.id, target)
+                  : { ok: false, reason: "Waiting for ally turn" };
+              const can = ready && !busy && state.phase !== "ended" && check.ok;
+              const cost =
+                skill.id === "guard"
+                  ? ` (−${skill.energyCost} EN, next hit ×½)`
+                  : skill.energyCost > 0
+                    ? ` (−${skill.energyCost})`
+                    : " (+1 EN)";
+              return (
+                <button
+                  key={skill.id}
+                  type="button"
+                  disabled={!can}
+                  title={check.reason}
+                  onClick={() => runPlayerSkill(skill.id)}
+                >
+                  {skill.label}
+                  {cost}
+                </button>
+              );
+            })}
+            <button type="button" disabled={busy} onClick={reset}>
+              Reset
             </button>
-          );
-        })}
-        <button type="button" disabled={busy} onClick={reset}>
-          Reset
-        </button>
+          </div>
+        </div>
+        {!ready ? <p className="note">Loading fighters…</p> : null}
+        {busy ? <p className="note">Action in progress.</p> : null}
       </div>
-      <label>
-        Asset source
-        <select
-          value={assetSource}
-          disabled={busy}
-          onChange={(event) => setAssetSource(event.target.value === "glb" ? "glb" : "noesis")}
-        >
-          <option value="noesis">Noesis glTF (default)</option>
-          <option value="glb">Blender GLB (local validation)</option>
-        </select>
-      </label>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={showAllMeshes}
-          onChange={(event) => setShowAllMeshes(event.target.checked)}
-        />
-        Show All meshes (diagnostic)
-      </label>
-      <div className="row">
-        <button type="button" disabled={!ready || busy} onClick={() => void runHeapCycles()}>
-          Heap ×5 reset
-        </button>
-      </div>
-      {benchNote ? <p className="note">{benchNote}</p> : null}
-      {!ready ? <p className="note">Loading Zoro, Sanji, Nami, and Usopp…</p> : null}
-      {busy ? <p className="note">Action in progress.</p> : null}
-      {loadNotes.map((note) => (
-        <p className="note" key={note}>
-          {note}
-        </p>
-      ))}
-      <h2>Event log</h2>
-      <ul className="battle-log">
-        {log.map((line, index) => (
-          <li key={`${index}-${line}`}>{line}</li>
+      <details className="battle-debug">
+        <summary>Developer / diagnostics</summary>
+        <p className="note">Basic +1 EN · Special −3 · Guard −1 (custom tactical, not authentic PW4).</p>
+        <label>
+          Asset source
+          <select
+            value={assetSource}
+            disabled={busy}
+            onChange={(event) => setAssetSource(event.target.value === "glb" ? "glb" : "noesis")}
+          >
+            <option value="noesis">Noesis glTF (default)</option>
+            <option value="glb">Blender GLB (local validation)</option>
+          </select>
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={showAllMeshes}
+            onChange={(event) => setShowAllMeshes(event.target.checked)}
+          />
+          Show All meshes (diagnostic)
+        </label>
+        <div className="row">
+          <button type="button" disabled={!ready || busy} onClick={() => void runHeapCycles()}>
+            Heap ×5 reset
+          </button>
+        </div>
+        {benchNote ? <p className="note">{benchNote}</p> : null}
+        {loadNotes.map((note) => (
+          <p className="note" key={note}>
+            {note}
+          </p>
         ))}
-      </ul>
+        <h2>Event log</h2>
+        <ul className="battle-log">
+          {log.map((line, index) => (
+            <li key={`${index}-${line}`}>{line}</li>
+          ))}
+        </ul>
+      </details>
     </div>
   );
 }

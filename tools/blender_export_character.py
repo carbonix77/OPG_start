@@ -42,50 +42,96 @@ def load_map(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def apply_texture_sheets(texture_dir: Path, map_json: dict) -> int:
-    """Best-effort: bind decoded PNG sheets onto materials by map.json keys."""
-    if not texture_dir.exists():
-        return 0
-    applied = 0
-    # map.json shapes vary; accept { "Material_N": "sheet" } or { "slots": [...] }.
+def _sheet_lookup(map_json: dict) -> dict[str, str]:
     sheet_by_key: dict[str, str] = {}
-    if isinstance(map_json, dict):
-        if "slots" in map_json and isinstance(map_json["slots"], list):
-            for index, sheet in enumerate(map_json["slots"]):
-                if isinstance(sheet, str) and sheet:
-                    sheet_by_key[str(index)] = sheet
-                    sheet_by_key[f"Material_{index:02d}"] = sheet
-                    sheet_by_key[f"Material_{index}"] = sheet
-        else:
-            for key, value in map_json.items():
-                if isinstance(value, str) and value and key not in ("note", "version"):
-                    sheet_by_key[str(key)] = value
+    if not isinstance(map_json, dict):
+        return sheet_by_key
+    if "slots" in map_json and isinstance(map_json["slots"], list):
+        for index, sheet in enumerate(map_json["slots"]):
+            if isinstance(sheet, str) and sheet:
+                sheet_by_key[str(index)] = sheet
+    else:
+        for key, value in map_json.items():
+            if isinstance(value, str) and value and key not in ("note", "version"):
+                sheet_by_key[str(key)] = value
+    return sheet_by_key
 
-    for mat in bpy.data.materials:
-        sheet = sheet_by_key.get(mat.name)
-        if not sheet:
-            # try trailing digits
-            digits = "".join(ch for ch in mat.name if ch.isdigit())
-            if digits:
-                sheet = sheet_by_key.get(digits) or sheet_by_key.get(f"Material_{int(digits):02d}")
+
+def _bind_sheet_to_material(mat, png: Path) -> None:
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    nodes.clear()
+    out = nodes.new("ShaderNodeOutputMaterial")
+    bsdf = nodes.new("ShaderNodeBsdfPrincipled")
+    tex = nodes.new("ShaderNodeTexImage")
+    image = bpy.data.images.load(str(png))
+    # Keep a unique image datablock per bind so exporters embed each used sheet.
+    image.name = f"sheet_{png.stem}_{mat.name}"
+    tex.image = image
+    links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
+    links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+
+
+def _mesh_index(name: str) -> int | None:
+    import re
+
+    hit = re.search(r"(?:Mesh_|submesh_|mesh_)(\d+)", name, re.I)
+    return int(hit.group(1)) if hit else None
+
+
+def apply_texture_sheets(texture_dir: Path, map_json: dict, slot_by_mesh: list[int] | None) -> dict:
+    """Bind decoded PNG sheets onto mesh materials using map.json + optional slot remap."""
+    if not texture_dir.exists():
+        return {"materials": 0, "meshes": 0, "images": 0}
+    sheet_by_key = _sheet_lookup(map_json)
+    mat_applied = 0
+    mesh_applied = 0
+
+    # Prefer per-mesh assignment (Noesis materials often lack Material_N names).
+    for obj in bpy.data.objects:
+        if obj.type != "MESH":
+            continue
+        index = _mesh_index(obj.name)
+        if index is None:
+            continue
+        slot = index
+        if slot_by_mesh is not None and 0 <= index < len(slot_by_mesh):
+            slot = slot_by_mesh[index]
+        sheet = sheet_by_key.get(str(slot)) or sheet_by_key.get(str(index))
         if not sheet:
             continue
         png = texture_dir / f"{sheet}.png"
         if not png.exists():
             continue
-        mat.use_nodes = True
-        nodes = mat.node_tree.nodes
-        links = mat.node_tree.links
-        nodes.clear()
-        out = nodes.new("ShaderNodeOutputMaterial")
-        bsdf = nodes.new("ShaderNodeBsdfPrincipled")
-        tex = nodes.new("ShaderNodeTexImage")
-        image = bpy.data.images.load(str(png))
-        tex.image = image
-        links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
-        links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
-        applied += 1
-    return applied
+        if not obj.data.materials:
+            mat = bpy.data.materials.new(name=f"mesh_{index}_{sheet}")
+            obj.data.materials.append(mat)
+        for mat in obj.data.materials:
+            if mat is None:
+                continue
+            _bind_sheet_to_material(mat, png)
+            mesh_applied += 1
+        mat_applied += 1
+
+    # Fallback: material-name matching for files that already have Material_N.
+    if mesh_applied == 0:
+        for mat in bpy.data.materials:
+            sheet = sheet_by_key.get(mat.name)
+            if not sheet:
+                digits = "".join(ch for ch in mat.name if ch.isdigit())
+                if digits:
+                    sheet = sheet_by_key.get(digits)
+            if not sheet:
+                continue
+            png = texture_dir / f"{sheet}.png"
+            if not png.exists():
+                continue
+            _bind_sheet_to_material(mat, png)
+            mat_applied += 1
+
+    images = sum(1 for img in bpy.data.images if img.filepath or img.size[0] > 0)
+    return {"materials": mat_applied, "meshes": mesh_applied, "images": images}
 
 
 def animation_names() -> list[str]:
@@ -155,12 +201,18 @@ def main() -> int:
     report = Path(args["report"])
     texture_dir = Path(args["textures"]) if args.get("textures") else None
     map_path = Path(args["map"]) if args.get("map") else (texture_dir / "map.json" if texture_dir else None)
+    slots_path = Path(args["slots"]) if args.get("slots") else None
     mode = args.get("mode", "ACTIONS")
+    slot_by_mesh = None
+    if slots_path and slots_path.exists():
+        raw = json.loads(slots_path.read_text(encoding="utf-8"))
+        if isinstance(raw, list):
+            slot_by_mesh = [int(x) for x in raw]
 
     reset_scene()
     import_gltf(gltf)
     map_json = load_map(map_path) if map_path else {}
-    textures_applied = apply_texture_sheets(texture_dir, map_json) if texture_dir else 0
+    texture_stats = apply_texture_sheets(texture_dir, map_json, slot_by_mesh) if texture_dir else {"materials": 0, "meshes": 0, "images": 0}
     before_actions = animation_names()
     meshes, verts = mesh_stats()
     bones = armature_bones()
@@ -173,6 +225,17 @@ def main() -> int:
     after_actions = animation_names()
     after_meshes, after_verts = mesh_stats()
     after_bones = armature_bones()
+    after_images = len([img for img in bpy.data.images if img.packed_file is not None or (img.size[0] > 0)])
+
+    missing = sorted(set(before_actions) - set(after_actions))
+    clips_ok = out.exists() and len(missing) == 0
+    textured = texture_stats.get("meshes", 0) > 0 or texture_stats.get("materials", 0) > 0
+    if clips_ok and textured:
+        status = "PASS"
+    elif clips_ok:
+        status = "PARTIAL"
+    else:
+        status = "FAIL"
 
     payload = {
         "character": character,
@@ -180,7 +243,9 @@ def main() -> int:
         "output_glb": str(out),
         "size_bytes": out.stat().st_size if out.exists() else 0,
         "export_mode_requested": mode,
-        "textures_applied": textures_applied,
+        "textures_applied": texture_stats.get("materials", 0),
+        "texture_stats": texture_stats,
+        "status": status,
         "source": {
             "actions": before_actions,
             "action_count": len(before_actions),
@@ -194,15 +259,27 @@ def main() -> int:
             "meshes": after_meshes,
             "vertices": after_verts,
             "bones": after_bones,
+            "images": after_images,
         },
-        "missing_actions": sorted(set(before_actions) - set(after_actions)),
+        "missing_actions": missing,
         "extra_actions": sorted(set(after_actions) - set(before_actions)),
-        "ok": out.exists() and len(set(before_actions) - set(after_actions)) == 0,
+        "ok": status == "PASS",
+        "clips_ok": clips_ok,
     }
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"character": character, "ok": payload["ok"], "glb": str(out), "actions": payload["glb_reimport"]["action_count"]}))
-    return 0 if payload["ok"] else 2
+    print(
+        json.dumps(
+            {
+                "character": character,
+                "status": status,
+                "glb": str(out),
+                "actions": payload["glb_reimport"]["action_count"],
+                "textures": texture_stats,
+            }
+        )
+    )
+    return 0 if clips_ok else 2
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 import { createRng } from "./rng";
 import { manifestOf, skillOf } from "./manifests";
-import type { BattleEvent, BattleState, CharacterManifest, TeamId, UnitState } from "./types";
+import { GUARD_DAMAGE_FACTOR, type BattleEvent, type BattleState, type CharacterManifest, type TeamId, type UnitState } from "./types";
 
 export interface UnitSpawn {
   id: string;
@@ -43,10 +43,17 @@ function winnerOf(units: UnitState[]): TeamId | null {
   return null;
 }
 
+function cloneSpawns(spawns: UnitSpawn[]): UnitSpawn[] {
+  return spawns.map((spawn) => ({ ...spawn }));
+}
+
 function buildUnit(spawn: UnitSpawn, manifest: CharacterManifest): UnitState {
   const maxHp = spawn.maxHp ?? manifest.maxHp;
   const maxEnergy = spawn.maxEnergy ?? manifest.maxEnergy;
   const startEnergy = Math.min(maxEnergy, spawn.startEnergy ?? manifest.startEnergy);
+  if (![maxHp, maxEnergy, startEnergy, spawn.speed ?? manifest.speed].every((n) => Number.isFinite(n) && n >= 0)) {
+    throw new Error(`Unit ${spawn.id} has non-finite combat values.`);
+  }
   return {
     id: spawn.id,
     manifestId: manifest.id,
@@ -57,6 +64,7 @@ function buildUnit(spawn: UnitSpawn, manifest: CharacterManifest): UnitState {
     speed: spawn.speed ?? manifest.speed,
     energy: startEnergy,
     maxEnergy,
+    guardCharges: 0,
     alive: true,
   };
 }
@@ -79,8 +87,8 @@ function validateSkillTiming(manifest: CharacterManifest): void {
     if (!ordered) {
       throw new Error(`Skill ${manifest.id}/${skill.id} has invalid timing markers.`);
     }
-    if (skill.energyCost < 0 || skill.energyGain < 0) {
-      throw new Error(`Skill ${manifest.id}/${skill.id} has negative energy values.`);
+    if (skill.energyCost < 0 || skill.energyGain < 0 || !Number.isFinite(skill.damage)) {
+      throw new Error(`Skill ${manifest.id}/${skill.id} has invalid numeric values.`);
     }
   }
   if (manifest.maxEnergy < 0 || manifest.startEnergy < 0 || manifest.startEnergy > manifest.maxEnergy) {
@@ -116,8 +124,12 @@ function validateSpawns(spawns: UnitSpawn[]): CharacterManifest[] {
 
 export class BattleEngine {
   private state: BattleState;
+  private readonly initialSpawns: UnitSpawn[];
+  private readonly initialSeed: number;
 
   constructor(seed: number, spawns: UnitSpawn[]) {
+    this.initialSeed = seed;
+    this.initialSpawns = cloneSpawns(spawns);
     const manifests = validateSpawns(spawns);
     const units = spawns.map((spawn, index) => buildUnit(spawn, manifests[index]));
     const order = initiativeOrder(seed, units);
@@ -161,17 +173,10 @@ export class BattleEngine {
     return out;
   }
 
-  reset(seed = this.state.seed): BattleState {
-    const spawns: UnitSpawn[] = this.state.units.map((unit) => ({
-      id: unit.id,
-      manifestId: unit.manifestId,
-      team: unit.team,
-      label: unit.label,
-      speed: unit.speed,
-      maxHp: unit.maxHp,
-      maxEnergy: unit.maxEnergy,
-    }));
-    this.state = new BattleEngine(seed, spawns).state;
+  /** Rebuilds from the original spawn list so startEnergy overrides survive. */
+  reset(seed = this.initialSeed): BattleState {
+    const next = new BattleEngine(seed, cloneSpawns(this.initialSpawns));
+    this.state = next.state;
     return this.getState();
   }
 
@@ -192,7 +197,11 @@ export class BattleEngine {
     const target = this.unit(targetId);
     if (!target) return { ok: false, reason: "Unknown target." };
     if (!target.alive) return { ok: false, reason: "Target is already defeated." };
-    if (target.team === actor.team) return { ok: false, reason: "Friendly targets are blocked in this slice." };
+    if (skill.targetMode === "self") {
+      if (targetId !== actorId) return { ok: false, reason: "Guard must target self." };
+    } else if (target.team === actor.team) {
+      return { ok: false, reason: "Friendly targets are blocked for attacks." };
+    }
     return { ok: true };
   }
 
@@ -263,10 +272,19 @@ export class BattleEngine {
       return [blocked];
     }
     pending.contactApplied = true;
-    const damage = Math.max(0, skill.damage);
+    const rawDamage = Math.max(0, skill.damage);
+    let damage = rawDamage;
+    let guarded = false;
+    if (rawDamage > 0 && target.guardCharges > 0) {
+      damage = Math.max(0, Math.floor(rawDamage * GUARD_DAMAGE_FACTOR));
+      target.guardCharges -= 1;
+      guarded = true;
+    }
     target.hp = Math.max(0, target.hp - damage);
     const gained = Math.max(0, skill.energyGain);
     actor.energy = Math.min(actor.maxEnergy, actor.energy + gained);
+    const guardGranted = Math.max(0, skill.grantGuardCharges ?? 0);
+    if (guardGranted > 0) actor.guardCharges += guardGranted;
     const events: BattleEvent[] = [
       {
         type: "contact",
@@ -275,9 +293,12 @@ export class BattleEngine {
         skillId: pending.skillId,
         targetId: pending.targetId,
         damage,
+        rawDamage,
+        guarded,
         targetHp: target.hp,
         energyGained: gained,
         actorEnergy: actor.energy,
+        guardChargesGranted: guardGranted,
       },
     ];
     if (target.hp === 0) {
@@ -288,10 +309,6 @@ export class BattleEngine {
     return events;
   }
 
-  /**
-   * Completes an action that already applied contact, or was intentionally resolved headless.
-   * Does not invent contact. Interrupted presentation must call abortAction instead.
-   */
   finishAction(actionId?: number): BattleEvent[] {
     const pending = this.state.pending;
     if (!pending || this.state.phase !== "acting") {
@@ -337,11 +354,6 @@ export class BattleEngine {
     return events;
   }
 
-  /**
-   * Cancels the active action and keeps the same actor's turn.
-   * Already-applied contact damage is not rolled back.
-   * Pre-contact abort refunds spent energy and leaves HP unchanged.
-   */
   abortAction(reason: string, actionId?: number): BattleEvent[] {
     const pending = this.state.pending;
     if (!pending || this.state.phase !== "acting") {
@@ -371,7 +383,6 @@ export class BattleEngine {
     return [aborted];
   }
 
-  /** Headless full resolve for tests and synthetic units. Explicitly applies contact. */
   resolveFully(actorId: string, skillId: string, targetId: string): BattleEvent[] {
     const started = this.beginAction(actorId, skillId, targetId);
     if (started.some((event) => event.type === "blocked")) return started;

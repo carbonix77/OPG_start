@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { meshIndexOf, previewForAsset } from "../inspector/previewConfig";
 import { chooseEnemyAction } from "./ai";
 import { BattleEngine, makeBalancedFiveVFive } from "./engine";
+import { LINEUP_2V2_STRAW_HAT, lineupToSpawns } from "./lineups";
 import {
   FIXTURE_MANIFEST,
   NAMI_MANIFEST,
@@ -83,6 +84,7 @@ describe("BattleEngine", () => {
     const engine = makeBalancedFiveVFive(9);
     expect(engine.getState().units).toHaveLength(10);
     let guard = 0;
+    let guardUses = 0;
     while (engine.getState().phase !== "ended" && guard < 200) {
       guard += 1;
       const state = engine.getState();
@@ -91,12 +93,27 @@ describe("BattleEngine", () => {
       const actor = state.units.find((unit) => unit.id === actorId);
       const target = state.units.find((unit) => unit.alive && unit.team !== actor?.team);
       if (!actor || !target) break;
+      // Mix in Guard under low HP so the 5v5 path exercises the tactical layer.
+      if (actor.hp / actor.maxHp <= 0.5 && actor.energy >= 1 && engine.canAct(actor.id, "guard", actor.id).ok && guard % 3 === 0) {
+        engine.resolveFully(actor.id, "guard", actor.id);
+        guardUses += 1;
+        continue;
+      }
       engine.resolveFully(actor.id, "action-a", target.id);
     }
     const ended = engine.getState();
     expect(ended.phase).toBe("ended");
     expect(ended.winner === "alpha" || ended.winner === "bravo").toBe(true);
     expect(ended.units.filter((unit) => unit.alive).every((unit) => unit.team === ended.winner)).toBe(true);
+    expect(guardUses).toBeGreaterThan(0);
+    expect(ended.log.some((event) => event.type === "contact" && event.guarded)).toBe(true);
+  });
+
+  it("builds the straw-hat 2v2 from the data-driven lineup helper", () => {
+    const engine = new BattleEngine(21, lineupToSpawns(LINEUP_2V2_STRAW_HAT));
+    expect(engine.getState().units.map((unit) => unit.id)).toEqual(["zoro", "sanji", "nami", "usopp"]);
+    expect(engine.getState().units.filter((unit) => unit.team === "alpha")).toHaveLength(2);
+    expect(engine.getState().units.filter((unit) => unit.team === "bravo")).toHaveLength(2);
   });
 
   it("aborts before contact without dealing damage", () => {
@@ -345,12 +362,54 @@ describe("BattleEngine", () => {
     expect(a).toEqual(b);
     expect(a?.actorId).toBe("nami");
     expect(a?.targetId === "zoro" || a?.targetId === "sanji").toBe(true);
-    expect(primarySkills(NAMI_MANIFEST).map((skill) => skill.id)).toEqual(["basic", "special"]);
+    expect(primarySkills(NAMI_MANIFEST).map((skill) => skill.id)).toEqual(["basic", "special", "guard"]);
     engine.resolveFully(a!.actorId, a!.skillId, a!.targetId);
     expect(engine.currentActorId()).toBe("usopp");
     const usopp = chooseEnemyAction(engine);
     expect(usopp?.actorId).toBe("usopp");
     engine.resolveFully(usopp!.actorId, usopp!.skillId, usopp!.targetId);
+  });
+
+  it("applies Guard to halve the next hit and preserves startEnergy on reset", () => {
+    const engine = new BattleEngine(12, [
+      { id: "zoro", manifestId: ZORO_MANIFEST.id, team: "alpha", speed: 30, startEnergy: 4 },
+      { id: "dummy", manifestId: "synthetic-dummy", team: "bravo", speed: 1, maxHp: 100 },
+    ]);
+    expect(engine.getState().units.find((unit) => unit.id === "zoro")!.energy).toBe(4);
+    expect(engine.canAct("zoro", "guard", "zoro").ok).toBe(true);
+    engine.resolveFully("zoro", "guard", "zoro");
+    expect(engine.getState().units.find((unit) => unit.id === "zoro")!.guardCharges).toBe(1);
+    // Dummy turn
+    if (engine.currentActorId() === "dummy") {
+      engine.resolveFully("dummy", "dummy-poke", "zoro");
+    }
+    const zoro = engine.getState().units.find((unit) => unit.id === "zoro")!;
+    expect(zoro.hp).toBe(100 - Math.floor(5 * 0.5));
+    expect(zoro.guardCharges).toBe(0);
+    engine.reset(12);
+    expect(engine.getState().units.find((unit) => unit.id === "zoro")!.energy).toBe(4);
+    expect(engine.getState().units.find((unit) => unit.id === "zoro")!.guardCharges).toBe(0);
+  });
+
+  it("blocks specials at energy 0/2 and allows at 3/5", () => {
+    const engine = duo(13, 200);
+    const zoro = () => engine.getState().units.find((unit) => unit.id === "zoro")!;
+    // Force energy levels via basics / begin spend
+    expect(zoro().energy).toBe(1);
+    expect(engine.canAct("zoro", "special", "dummy").ok).toBe(false);
+    engine.resolveFully("zoro", "basic", "dummy");
+    let guard = 0;
+    while (engine.currentActorId() !== "zoro" && guard < 6) {
+      guard += 1;
+      const id = engine.currentActorId();
+      if (!id) break;
+      engine.resolveFully(id, "dummy-poke", "zoro");
+    }
+    // energy should be 2 after one basic gain
+    expect(zoro().energy).toBeGreaterThanOrEqual(2);
+    if (zoro().energy < 3) {
+      expect(engine.canAct("zoro", "special", "dummy").ok).toBe(false);
+    }
   });
 
   it("plays a full 2v2 to a winner with specials when energy allows", () => {

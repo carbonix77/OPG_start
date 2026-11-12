@@ -1,6 +1,6 @@
 # REVIEW #28 — Playable 2v2 mechanics + four local GLBs
 
-**Commit:** (set at push) · Branch `research/phase-1-extraction`  
+**Commit:** `9f67a76a90133bde30e99192cfe3db8a21cda40c` · Branch `research/phase-1-extraction`  
 **Supersedes priority order from #26 owner override (2026-11-11).**
 
 ## Blender
