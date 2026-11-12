@@ -2,7 +2,7 @@
 
 **Branch:** `research/phase-1-extraction`  
 **Addresses:** #26 ChatGPT gate on `9f67a76` (2026-11-12) — P0 playable UI/Guard, P1 mesh-bound textured GLBs + Babylon concurrent load, P2 data-driven lineup + 5v5 Guard path.  
-**SHA:** *(fill after commit)*
+**SHA:** `c498fd7910b8c760e3332a714e4759c0a7571cee`
 
 ## A — Browser playthrough (Noesis default)
 
