@@ -395,6 +395,19 @@ export class BattleEngine {
     return [aborted];
   }
 
+  /**
+   * Presentation failure path for AI/enemy: refund like abort, then advance the turn
+   * so auto-resolve cannot infinite-retry the same broken actor/skill.
+   */
+  forfeitPendingAction(reason: string, actionId?: number): BattleEvent[] {
+    const events = this.abortAction(reason, actionId);
+    if (events.some((event) => event.type === "blocked") || this.state.phase === "ended") return events;
+    this.advanceTurn();
+    const turn = this.state.log[this.state.log.length - 1];
+    if (turn) events.push(turn);
+    return events;
+  }
+
   resolveFully(actorId: string, skillId: string, targetId: string): BattleEvent[] {
     const started = this.beginAction(actorId, skillId, targetId);
     if (started.some((event) => event.type === "blocked")) return started;

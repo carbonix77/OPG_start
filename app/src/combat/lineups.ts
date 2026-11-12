@@ -1,5 +1,11 @@
 import type { UnitSpawn } from "./engine";
-import { NAMI_MANIFEST, SANJI_MANIFEST, USOPP_MANIFEST, ZORO_MANIFEST } from "./manifests";
+import {
+  NAMI_MANIFEST,
+  SANJI_MANIFEST,
+  SYNTHETIC_MANIFEST,
+  USOPP_MANIFEST,
+  ZORO_MANIFEST,
+} from "./manifests";
 
 /** Data-driven lineup. Battle UI swaps this without hard-coding engine ids. */
 export interface LineupUnit {
@@ -10,10 +16,12 @@ export interface LineupUnit {
   speed?: number;
   maxHp?: number;
   startEnergy?: number;
-  /** Noesis battle asset id (required for skinned presentation). */
-  noesisAssetId: string;
-  /** Local Blender GLB asset id for validation. */
-  glbAssetId: string;
+  /** Noesis battle asset id (skinned). Ignored for synthetic presentation. */
+  noesisAssetId?: string;
+  /** Local Blender GLB asset id. Ignored for synthetic presentation. */
+  glbAssetId?: string;
+  /** skinned = CharacterUnitView; synthetic = generated placeholder. */
+  presentation?: "skinned" | "synthetic";
 }
 
 export interface LineupDefinition {
@@ -28,6 +36,7 @@ const ZORO: Omit<LineupUnit, "team" | "speed" | "maxHp"> = {
   label: "Zoro",
   noesisAssetId: "noesis-roster",
   glbAssetId: "glb-zoro",
+  presentation: "skinned",
 };
 const SANJI: Omit<LineupUnit, "team" | "speed" | "maxHp"> = {
   id: "sanji",
@@ -35,6 +44,7 @@ const SANJI: Omit<LineupUnit, "team" | "speed" | "maxHp"> = {
   label: "Sanji",
   noesisAssetId: "noesis-sanji",
   glbAssetId: "glb-sanji",
+  presentation: "skinned",
 };
 const NAMI: Omit<LineupUnit, "team" | "speed" | "maxHp"> = {
   id: "nami",
@@ -42,6 +52,7 @@ const NAMI: Omit<LineupUnit, "team" | "speed" | "maxHp"> = {
   label: "Nami",
   noesisAssetId: "noesis-nami",
   glbAssetId: "glb-nami",
+  presentation: "skinned",
 };
 const USOPP: Omit<LineupUnit, "team" | "speed" | "maxHp"> = {
   id: "usopp",
@@ -49,6 +60,7 @@ const USOPP: Omit<LineupUnit, "team" | "speed" | "maxHp"> = {
   label: "Usopp",
   noesisAssetId: "noesis-usopp",
   glbAssetId: "glb-usopp",
+  presentation: "skinned",
 };
 
 /** Classic: Zoro+Sanji vs Nami+Usopp. */
@@ -75,7 +87,31 @@ export const LINEUP_2V2_MIXED: LineupDefinition = {
   ],
 };
 
-export const BATTLE_LINEUPS: LineupDefinition[] = [LINEUP_2V2_STRAW_HAT, LINEUP_2V2_MIXED];
+/** Ten synthetic placeholders — feasibility test, not skinned GLBs. */
+export const LINEUP_5V5_SYNTHETIC: LineupDefinition = {
+  id: "synth-5v5",
+  label: "Synthetic 5v5 (feasibility)",
+  units: Array.from({ length: 5 }, (_, i) => [
+    {
+      id: `a${i}`,
+      manifestId: SYNTHETIC_MANIFEST.id,
+      team: "alpha" as const,
+      label: `A${i}`,
+      speed: 8 + i * 2,
+      presentation: "synthetic" as const,
+    },
+    {
+      id: `b${i}`,
+      manifestId: SYNTHETIC_MANIFEST.id,
+      team: "bravo" as const,
+      label: `B${i}`,
+      speed: 9 + i * 2,
+      presentation: "synthetic" as const,
+    },
+  ]).flat(),
+};
+
+export const BATTLE_LINEUPS: LineupDefinition[] = [LINEUP_2V2_STRAW_HAT, LINEUP_2V2_MIXED, LINEUP_5V5_SYNTHETIC];
 
 export function lineupById(id: string): LineupDefinition {
   return BATTLE_LINEUPS.find((row) => row.id === id) ?? LINEUP_2V2_STRAW_HAT;
@@ -94,6 +130,7 @@ export function lineupToSpawns(lineup: LineupDefinition | LineupUnit[]): UnitSpa
   }));
 }
 
-export function assetIdForUnit(unit: LineupUnit, source: "noesis" | "glb"): string {
-  return source === "glb" ? unit.glbAssetId : unit.noesisAssetId;
+export function assetIdForUnit(unit: LineupUnit, source: "noesis" | "glb"): string | null {
+  if (unit.presentation === "synthetic") return null;
+  return source === "glb" ? unit.glbAssetId ?? null : unit.noesisAssetId ?? null;
 }

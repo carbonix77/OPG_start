@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import { meshIndexOf, previewForAsset } from "../inspector/previewConfig";
 import { chooseEnemyAction } from "./ai";
 import { BattleEngine, makeBalancedFiveVFive } from "./engine";
-import { LINEUP_2V2_MIXED, LINEUP_2V2_STRAW_HAT, lineupToSpawns } from "./lineups";
+import { slotsForLineup } from "../battle/arena";
+import { LINEUP_2V2_MIXED, LINEUP_2V2_STRAW_HAT, LINEUP_5V5_SYNTHETIC, lineupToSpawns } from "./lineups";
 import {
   FIXTURE_MANIFEST,
   NAMI_MANIFEST,
   SANJI_MANIFEST,
+  SYNTHETIC_MANIFEST,
   USOPP_MANIFEST,
   ZORO_MANIFEST,
   primarySkills,
@@ -467,5 +469,32 @@ describe("BattleEngine", () => {
       resolveModeForAction({ ...FIXTURE_MANIFEST, assetId: null }, skillOf(FIXTURE_MANIFEST, "action-a"), false).mode,
     ).toBe("instant");
     expect(dummyHp).toBe(100);
+  });
+
+  it("forfeits a pending action and advances the turn so AI cannot infinite-retry", () => {
+    const engine = new BattleEngine(15, [
+      { id: "nami", manifestId: NAMI_MANIFEST.id, team: "bravo", speed: 40, startEnergy: 5 },
+      { id: "zoro", manifestId: ZORO_MANIFEST.id, team: "alpha", speed: 1 },
+    ]);
+    expect(engine.currentActorId()).toBe("nami");
+    engine.beginAction("nami", "basic", "zoro");
+    const actionId = engine.currentActionId()!;
+    const beforeEnergy = engine.getState().units.find((unit) => unit.id === "nami")!.energy;
+    const events = engine.forfeitPendingAction("missing view", actionId);
+    expect(events.some((event) => event.type === "action-aborted")).toBe(true);
+    expect(engine.getState().units.find((unit) => unit.id === "nami")!.energy).toBeGreaterThanOrEqual(beforeEnergy);
+    expect(engine.currentActorId()).toBe("zoro");
+    expect(engine.getState().units.find((unit) => unit.id === "zoro")!.hp).toBe(100);
+  });
+
+  it("places ten synthetic 5v5 units on unique formation slots", () => {
+    expect(LINEUP_5V5_SYNTHETIC.units).toHaveLength(10);
+    expect(SYNTHETIC_MANIFEST.assetId).toBe("synthetic-placeholder");
+    const slots = slotsForLineup(LINEUP_5V5_SYNTHETIC.units);
+    expect(slots).toHaveLength(10);
+    const keys = new Set(slots.map((slot) => slot.position.join(",")));
+    expect(keys.size).toBe(10);
+    const engine = new BattleEngine(3, lineupToSpawns(LINEUP_5V5_SYNTHETIC));
+    expect(engine.getState().units).toHaveLength(10);
   });
 });

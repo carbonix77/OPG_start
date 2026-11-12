@@ -19,9 +19,13 @@ import type { InspectorScene } from "../inspector/InspectorScene";
 import { previewForAsset } from "../inspector/previewConfig";
 import { BattleArena, slotsForLineup } from "./arena";
 import { CharacterUnitView, measureHeapMb, type CharacterLoadResult } from "./CharacterUnitView";
+import { SyntheticUnitView } from "./SyntheticUnitView";
 import { UnitViewRegistry, type UnitViewSpec } from "./unitRegistry";
 
 const SEED = 21;
+const MAX_AI_FAILS = 3;
+
+type UnitPresenter = CharacterUnitView | SyntheticUnitView;
 
 function formatEvent(event: BattleEvent): string {
   switch (event.type) {
@@ -64,20 +68,22 @@ export function BattlePanel(props: {
   const [state, setState] = useState<BattleState>(() => engine.getState());
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [targetId, setTargetId] = useState(() => defaultEnemyId(lineup));
   const [log, setLog] = useState<string[]>([]);
   const [loadNotes, setLoadNotes] = useState<string[]>([]);
   const [showAllMeshes, setShowAllMeshes] = useState(false);
-  /** Noesis remains the battle default until GLB parity is accepted. */
   const [assetSource, setAssetSource] = useState<"noesis" | "glb">("noesis");
   const [benchNote, setBenchNote] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
   const liveAction = useRef<{ engineId: number; presentToken: number; unitId: string } | null>(null);
   const mounted = useRef(true);
   const sessionRef = useRef(0);
   const autoTimerRef = useRef<number | null>(null);
+  const aiFailRef = useRef<Map<string, number>>(new Map());
   const arenaRef = useRef<BattleArena | null>(null);
   const markersRef = useRef<UnitViewRegistry | null>(null);
-  const charactersRef = useRef<Map<string, CharacterUnitView>>(new Map());
+  const charactersRef = useRef<Map<string, UnitPresenter>>(new Map());
   const engineRef = useRef(engine);
   engineRef.current = engine;
 
@@ -89,7 +95,7 @@ export function BattlePanel(props: {
   };
 
   const slots = useMemo(() => slotsForLineup(lineup.units), [lineup]);
-  const fighterIds = useMemo(() => lineup.units.map((unit) => unit.id), [lineup]);
+  const isSynthetic = lineup.units.every((unit) => unit.presentation === "synthetic");
 
   useEffect(() => {
     mounted.current = true;
@@ -115,13 +121,13 @@ export function BattlePanel(props: {
     let cancelled = false;
     const session = ++sessionRef.current;
     clearAutoTimer();
+    aiFailRef.current.clear();
     const scene = props.scene;
     scene.prepareBattleScene();
-    // True 16:9 drawing buffer for review captures.
     scene.engine.setSize(1280, 720, true);
-    scene.camera.radius = 480;
-    scene.camera.alpha = 0.35;
-    scene.camera.beta = 1.05;
+    scene.camera.radius = isSynthetic ? 620 : 440;
+    scene.camera.alpha = 0.4;
+    scene.camera.beta = 0.98;
     const arena = new BattleArena(scene.scene);
     const markers = new UnitViewRegistry(scene.scene);
     arena.setSlots([...slots]);
@@ -139,45 +145,62 @@ export function BattlePanel(props: {
 
     const load = async () => {
       const notes: string[] = [];
-      const results: CharacterLoadResult[] = [];
+      const failures: string[] = [];
+      let loaded = 0;
       for (const [index, unit] of lineup.units.entries()) {
-        const assetId = assetIdForUnit(unit, assetSource);
-        const asset = LOCAL_ASSETS.find((item) => item.id === assetId);
-        const preview = previewForAsset(assetId);
-        if (!asset || !preview) {
-          notes.push(`Missing asset/preview for ${unit.id} (${assetId}).`);
-          continue;
-        }
-        const view = new CharacterUnitView(unit.id, scene.scene);
-        charactersRef.current.set(unit.id, view);
+        const slot = slots[index]!;
         try {
-          const result = await view.load(asset, preview, slots[index]!.position, {
+          if (unit.presentation === "synthetic") {
+            const view = new SyntheticUnitView(unit.id, scene.scene);
+            charactersRef.current.set(unit.id, view);
+            const result = await view.load(slot.position, unit.team);
+            if (cancelled || session !== sessionRef.current) return;
+            view.playIdle(null);
+            markers.hidePlaceholder(unit.id);
+            notes.push(`${unit.id}←synthetic @ [${slot.position.join(",")}] ${result.loadMs} ms.`);
+            loaded += 1;
+            continue;
+          }
+          const assetId = assetIdForUnit(unit, assetSource);
+          const asset = LOCAL_ASSETS.find((item) => item.id === assetId);
+          const preview = previewForAsset(assetId ?? "");
+          if (!asset || !preview || !assetId) {
+            failures.push(`${unit.id}: missing asset/preview (${assetId ?? "null"}).`);
+            notes.push(`Missing asset/preview for ${unit.id}.`);
+            continue;
+          }
+          const view = new CharacterUnitView(unit.id, scene.scene);
+          charactersRef.current.set(unit.id, view);
+          const result: CharacterLoadResult = await view.load(asset, preview, slot.position, {
             preferEmbeddedTextures: assetSource === "glb",
           });
           if (cancelled || session !== sessionRef.current) return;
           view.setShowAllMeshes(showAllMeshes);
-          results.push(result);
-          const slot = slots[index]!;
           const durationNote = Object.entries(result.clipDurations)
             .map(([name, sec]) => `${name}:${sec}s`)
             .join(", ");
           notes.push(
-            `${unit.id}←${asset.id} @ [${slot.position.join(",")}] ${result.meshes} meshes, ${result.skeletons} skel/${result.joints} joints, clips ${result.clips.join(", ")}, durations [${durationNote}], ${result.loadMs} ms, textures ${result.textureNotes}, embedded ${result.embeddedTextures}${result.usedEmbeddedOnly ? " (embedded-only)" : ""}${result.textureError ? ` (${result.textureError})` : ""}.`,
+            `${unit.id}←${asset.id} @ [${slot.position.join(",")}] ${result.meshes} meshes, ${result.skeletons} skel/${result.joints} joints, clips ${result.clips.join(", ")}, durations [${durationNote}], ${result.loadMs} ms, embedded ${result.embeddedTextures}${result.usedEmbeddedOnly ? " (embedded-only)" : ""}.`,
           );
           const manifest = manifestOf(unit.manifestId);
           view.playIdle(manifest?.idleClip ?? null);
           markers.hidePlaceholder(unit.id);
+          loaded += 1;
         } catch (error) {
+          failures.push(`${unit.id}: ${error instanceof Error ? error.message : String(error)}`);
           notes.push(`${unit.id} load failed: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
       if (cancelled || session !== sessionRef.current) return;
       setLoadNotes(notes);
-      setReady(results.length === lineup.units.length);
+      const ok = failures.length === 0 && loaded === lineup.units.length;
+      setReady(ok);
+      setLoadError(ok ? "" : `Load failed (${failures.join("; ")}). Battle commands disabled until Retry.`);
       const heap = measureHeapMb();
-      const textured = results.filter((row) => row.textured).length;
       props.onStatus(
-        `Loaded ${results.length}/${lineup.units.length} fighters (${textured}/${results.length} textured). Heap ${heap ?? "?"} MB. Canvas ${scene.engine.getRenderWidth()}×${scene.engine.getRenderHeight()}.`,
+        ok
+          ? `Loaded ${loaded}/${lineup.units.length}. Heap ${heap ?? "?"} MB. Canvas ${scene.engine.getRenderWidth()}×${scene.engine.getRenderHeight()}.`
+          : `Battle load incomplete: ${failures[0]}`,
       );
     };
     void load();
@@ -195,11 +218,26 @@ export function BattlePanel(props: {
       if (markersRef.current === markers) markersRef.current = null;
       setReady(false);
     };
-  }, [props.active, props.scene, slots, assetSource, lineup]);
+  }, [props.active, props.scene, slots, assetSource, lineup, reloadToken, isSynthetic]);
 
   useEffect(() => {
-    for (const unit of charactersRef.current.values()) unit.setShowAllMeshes(showAllMeshes);
+    for (const unit of charactersRef.current.values()) {
+      if (unit instanceof CharacterUnitView) unit.setShowAllMeshes(showAllMeshes);
+    }
   }, [showAllMeshes]);
+
+  // If bravo wins initiative after load/lineup switch, start AI so the loop is not frozen.
+  useEffect(() => {
+    if (!ready || busy || loadError || !props.active) return;
+    const eng = engineRef.current;
+    if (eng.getState().phase === "ended") return;
+    const id = eng.currentActorId();
+    const unit = eng.getState().units.find((row) => row.id === id);
+    if (unit?.team !== "bravo") return;
+    const session = sessionRef.current;
+    autoResolveUntilPlayerOrEnd(session);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- kick once when ready/lineup becomes playable
+  }, [ready, lineupId, reloadToken, props.active, loadError]);
 
   const refresh = (events: BattleEvent[] = []) => {
     if (!mounted.current) return;
@@ -209,7 +247,7 @@ export function BattlePanel(props: {
       markersRef.current?.setAlive(unit.id, unit.alive);
       charactersRef.current.get(unit.id)?.setEnabled(unit.alive);
     }
-    if (events.length) setLog((prev) => [...events.map(formatEvent), ...prev].slice(0, 40));
+    if (events.length) setLog((prev) => [...events.map(formatEvent), ...prev].slice(0, 50));
   };
 
   const livingEnemies = state.units.filter((unit) => unit.team === "bravo" && unit.alive);
@@ -219,7 +257,8 @@ export function BattlePanel(props: {
   const actorManifest = actor ? manifestOf(actor.manifestId) : null;
   const playerActor = actor && actor.team === "alpha" ? actor.id : null;
   const playerSkills = actorManifest && playerActor ? primarySkills(actorManifest) : [];
-  const queue = engine.turnQueue(6);
+  const queue = engine.turnQueue(8);
+  const hpCols = Math.min(5, Math.max(2, Math.ceil(state.units.length / 2)));
 
   useEffect(() => {
     arenaRef.current?.highlight(selected || null);
@@ -230,21 +269,22 @@ export function BattlePanel(props: {
     skillId: string,
     target: string,
     session: number,
-    onDone: () => void,
+    onDone: (outcome: "ok" | "abort" | "forfeit") => void,
   ) => {
     const eng = engineRef.current;
-    const manifest = manifestOf(eng.getState().units.find((unit) => unit.id === unitId)?.manifestId ?? "");
+    const unitState = eng.getState().units.find((unit) => unit.id === unitId);
+    const manifest = manifestOf(unitState?.manifestId ?? "");
     const skill = manifest ? skillOf(manifest, skillId) : null;
     const character = charactersRef.current.get(unitId);
     if (!manifest || !skill) {
-      onDone();
+      onDone("abort");
       return;
     }
     const started = eng.beginAction(unitId, skillId, target);
     refresh(started);
     const engineId = eng.currentActionId();
     if (engineId === null) {
-      onDone();
+      onDone("abort");
       return;
     }
     const policy = resolveModeForAction(manifest, skill, !!character);
@@ -253,13 +293,15 @@ export function BattlePanel(props: {
       markersRef.current?.flash(target);
       charactersRef.current.get(target)?.flash();
       refresh(events.filter((event) => event.type !== "blocked"));
-      onDone();
+      onDone("ok");
       return;
     }
     if (policy.mode === "abort") {
-      refresh(eng.abortAction(policy.reason, engineId));
-      onDone();
+      const isEnemy = unitState?.team === "bravo";
+      const events = isEnemy ? eng.forfeitPendingAction(policy.reason, engineId) : eng.abortAction(policy.reason, engineId);
+      refresh(events);
       props.onStatus(policy.reason);
+      onDone(isEnemy ? "forfeit" : "abort");
       return;
     }
     const played = character!.playSkill(
@@ -279,15 +321,17 @@ export function BattlePanel(props: {
         if (liveAction.current?.presentToken !== token || liveAction.current.engineId !== engineId) return;
         refresh(eng.finishAction(engineId));
         liveAction.current = null;
-        onDone();
+        onDone("ok");
       },
     );
     liveAction.current = { engineId, presentToken: played.token, unitId };
     if (played.mode === "missing") {
-      refresh(eng.abortAction(played.note, engineId));
+      const isEnemy = unitState?.team === "bravo";
+      const events = isEnemy ? eng.forfeitPendingAction(played.note, engineId) : eng.abortAction(played.note, engineId);
       liveAction.current = null;
-      onDone();
+      refresh(events);
       props.onStatus(played.note);
+      onDone(isEnemy ? "forfeit" : "abort");
     } else {
       props.onStatus(played.note);
     }
@@ -308,6 +352,12 @@ export function BattlePanel(props: {
         setBusy(false);
         return;
       }
+      const fails = aiFailRef.current.get(nextActor) ?? 0;
+      if (fails >= MAX_AI_FAILS) {
+        setBusy(false);
+        props.onStatus(`Enemy ${nextActor} presentation failed ${fails}× — stopping auto AI.`);
+        return;
+      }
       const decision = chooseEnemyAction(eng);
       if (!decision) {
         setBusy(false);
@@ -316,8 +366,13 @@ export function BattlePanel(props: {
       }
       setBusy(true);
       props.onStatus(`AI ${decision.reason}`);
-      playUnitSkill(decision.actorId, decision.skillId, decision.targetId, session, () => {
+      playUnitSkill(decision.actorId, decision.skillId, decision.targetId, session, (outcome) => {
         if (!mounted.current || session !== sessionRef.current) return;
+        if (outcome === "forfeit" || outcome === "abort") {
+          aiFailRef.current.set(decision.actorId, (aiFailRef.current.get(decision.actorId) ?? 0) + 1);
+        } else {
+          aiFailRef.current.set(decision.actorId, 0);
+        }
         const follow = eng.currentActorId();
         const followUnit = eng.getState().units.find((unit) => unit.id === follow);
         if (follow && followUnit?.team === "bravo" && eng.getState().phase !== "ended") {
@@ -332,15 +387,20 @@ export function BattlePanel(props: {
   };
 
   const runPlayerSkill = (skillId: string) => {
-    if (!ready || busy || !playerActor) return;
+    if (!ready || busy || !playerActor || loadError) return;
     const skill = actorManifest ? skillOf(actorManifest, skillId) : null;
     const target = skill?.targetMode === "self" ? playerActor : selected;
     if (!target) return;
     if (!engine.canAct(playerActor, skillId, target).ok) return;
     const session = sessionRef.current;
     setBusy(true);
-    playUnitSkill(playerActor, skillId, target, session, () => {
+    playUnitSkill(playerActor, skillId, target, session, (outcome) => {
       if (!mounted.current || session !== sessionRef.current) return;
+      if (outcome === "abort") {
+        // Player keeps the turn after presentation abort (energy refunded).
+        setBusy(false);
+        return;
+      }
       autoResolveUntilPlayerOrEnd(session);
     });
   };
@@ -358,6 +418,7 @@ export function BattlePanel(props: {
     setState(nextEngine.getState());
     setLog([]);
     setBenchNote("");
+    setLoadError("");
     setTargetId(defaultEnemyId(nextLineup));
     setReady(false);
     props.onStatus(`Lineup → ${nextLineup.label}`);
@@ -368,6 +429,7 @@ export function BattlePanel(props: {
     clearAutoTimer();
     sessionRef.current += 1;
     liveAction.current = null;
+    aiFailRef.current.clear();
     for (const unit of charactersRef.current.values()) unit.cancelAction();
     engine.reset(SEED);
     setLog([]);
@@ -383,7 +445,14 @@ export function BattlePanel(props: {
       charactersRef.current.get(unit.id)?.setEnabled(true);
     }
     setTargetId(defaultEnemyId(lineup));
-    props.onStatus("2v2 reset. Energy and HP restored.");
+    props.onStatus("Battle reset. Energy and HP restored.");
+  };
+
+  const retryLoad = () => {
+    if (busy) return;
+    setLoadError("");
+    setReady(false);
+    setReloadToken((n) => n + 1);
   };
 
   const runHeapCycles = async () => {
@@ -409,7 +478,7 @@ export function BattlePanel(props: {
     <div className="battle-panel">
       <div className="battle-hud">
         <div className="battle-hud-top">
-          <strong>2v2</strong>
+          <strong>{isSynthetic ? "5v5 synth" : "2v2"}</strong>
           <label className="battle-lineup">
             Lineup
             <select value={lineupId} disabled={busy} onChange={(event) => applyLineup(event.target.value)}>
@@ -424,17 +493,27 @@ export function BattlePanel(props: {
             Actor {actor?.label ?? "—"} · EN {actor?.energy ?? 0}/{actor?.maxEnergy ?? 0}
             {actor && actor.guardCharges > 0 ? ` · Guard×${actor.guardCharges}` : ""}
           </span>
-          <span>Queue {queue.map((id) => state.units.find((u) => u.id === id)?.label ?? id).join(" → ") || "—"}</span>
+          <span className="battle-queue">
+            Queue {queue.map((id) => state.units.find((u) => u.id === id)?.label ?? id).join(" → ") || "—"}
+          </span>
         </div>
         {state.phase === "ended" ? (
           <p className="battle-result">{state.winner === "alpha" ? "Victory" : "Defeat"} — winner {state.winner}</p>
+        ) : null}
+        {loadError ? (
+          <p className="battle-error">
+            {loadError}{" "}
+            <button type="button" disabled={busy} onClick={retryLoad}>
+              Retry
+            </button>
+          </p>
         ) : null}
         <div className="battle-commands">
           <label className="battle-target">
             Target
             <select
               value={selected}
-              disabled={busy || livingEnemies.length === 0 || state.phase === "ended"}
+              disabled={!ready || busy || livingEnemies.length === 0 || state.phase === "ended"}
               onChange={(event) => setTargetId(event.target.value)}
             >
               {livingEnemies.map((unit) => (
@@ -452,10 +531,10 @@ export function BattlePanel(props: {
                 playerActor && target
                   ? engine.canAct(playerActor, skill.id, target)
                   : { ok: false, reason: "Waiting for ally turn" };
-              const can = ready && !busy && state.phase !== "ended" && check.ok;
+              const can = ready && !busy && !loadError && state.phase !== "ended" && check.ok;
               const cost =
                 skill.id === "guard"
-                  ? ` (−${skill.energyCost} EN, next hit ×½)`
+                  ? ` (−${skill.energyCost} EN, ×½)`
                   : skill.energyCost > 0
                     ? ` (−${skill.energyCost})`
                     : " (+1 EN)";
@@ -477,7 +556,7 @@ export function BattlePanel(props: {
             </button>
           </div>
         </div>
-        <div className="battle-hp battle-hp-compact">
+        <div className="battle-hp battle-hp-compact" style={{ gridTemplateColumns: `repeat(${hpCols}, minmax(0, 1fr))` }}>
           {state.units.map((unit) => (
             <button
               type="button"
@@ -496,29 +575,29 @@ export function BattlePanel(props: {
               </div>
               <div className="battle-unit-meta">
                 {unit.hp}/{unit.maxHp} · EN {unit.energy}/{unit.maxEnergy}
-                {unit.guardCharges > 0 ? ` · Guard×${unit.guardCharges}` : ""}
               </div>
             </button>
           ))}
         </div>
-        {!ready ? <p className="note">Loading fighters…</p> : null}
+        {!ready && !loadError ? <p className="note">Loading fighters…</p> : null}
         {busy ? <p className="note">Action in progress.</p> : null}
       </div>
       <details className="battle-debug">
         <summary>Developer / diagnostics</summary>
-        <p className="note">Basic +1 EN · Special −3 · Guard −1 (custom tactical, not authentic PW4). Cap 1 Guard charge.</p>
-        <p className="note">Fighters: {fighterIds.join(", ")}</p>
-        <label>
-          Asset source
-          <select
-            value={assetSource}
-            disabled={busy}
-            onChange={(event) => setAssetSource(event.target.value === "glb" ? "glb" : "noesis")}
-          >
-            <option value="noesis">Noesis glTF (default)</option>
-            <option value="glb">Blender GLB (local validation)</option>
-          </select>
-        </label>
+        <p className="note">Basic +1 · Special −3 · Guard −1 (cap 1). Synthetic 5v5 is a feasibility test, not skinned GLBs.</p>
+        {!isSynthetic ? (
+          <label>
+            Asset source
+            <select
+              value={assetSource}
+              disabled={busy}
+              onChange={(event) => setAssetSource(event.target.value === "glb" ? "glb" : "noesis")}
+            >
+              <option value="noesis">Noesis glTF (default)</option>
+              <option value="glb">Blender GLB (local validation)</option>
+            </select>
+          </label>
+        ) : null}
         <label className="check">
           <input
             type="checkbox"

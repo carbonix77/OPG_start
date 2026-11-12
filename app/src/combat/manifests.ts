@@ -175,6 +175,45 @@ export const FIXTURE_MANIFEST: CharacterManifest = {
   ],
 };
 
+/** Rendered 5v5 placeholders. Not a PW4 skinned asset. */
+export const SYNTHETIC_MANIFEST: CharacterManifest = {
+  id: "synthetic-fighter",
+  label: "Synthetic fighter",
+  maxHp: 36,
+  speed: 10,
+  assetId: "synthetic-placeholder",
+  idleClip: "synth-idle",
+  startEnergy: 1,
+  maxEnergy: 5,
+  skills: [
+    skill({
+      id: "basic",
+      label: "Basic",
+      damage: 8,
+      startup: 0.1,
+      contact: 0.4,
+      recovery: 0.9,
+      clipId: "synth-basic",
+      confidence: "synthetic",
+      energyCost: 0,
+      energyGain: 1,
+    }),
+    skill({
+      id: "special",
+      label: "Special",
+      damage: 16,
+      startup: 0.1,
+      contact: 0.45,
+      recovery: 0.9,
+      clipId: "synth-special",
+      confidence: "synthetic",
+      energyCost: 3,
+      energyGain: 0,
+    }),
+    guardSkill("synth-idle"),
+  ],
+};
+
 export const SANJI_MANIFEST: CharacterManifest = {
   id: "sanji-roster",
   label: "Sanji roster",
@@ -293,6 +332,7 @@ export const MANIFEST_BY_ID: Record<string, CharacterManifest> = {
   [ZORO_MANIFEST.id]: ZORO_MANIFEST,
   [DUMMY_MANIFEST.id]: DUMMY_MANIFEST,
   [FIXTURE_MANIFEST.id]: FIXTURE_MANIFEST,
+  [SYNTHETIC_MANIFEST.id]: SYNTHETIC_MANIFEST,
   [SANJI_MANIFEST.id]: SANJI_MANIFEST,
   [NAMI_MANIFEST.id]: NAMI_MANIFEST,
   [USOPP_MANIFEST.id]: USOPP_MANIFEST,

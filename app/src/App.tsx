@@ -148,7 +148,7 @@ export function App() {
           </select>
         </label>
         {mode === "battle" ? (
-          <BattlePanel scene={sceneRef.current} active={mode === "battle"} onStatus={setStatus} />
+          <p className="note">Battle HUD is under the canvas. Mode stays here.</p>
         ) : (
           <>
         <h1>Zoro inspection</h1>
@@ -641,37 +641,43 @@ export function App() {
       </aside>
       <main>
         <canvas ref={canvasRef} />
-        <section className="facts">
-          <p>{status}</p>
-          <p>
-            Meshes {facts.meshes} · materials {facts.materials} · skeletons {facts.skeletons} · joints {facts.joints} · follow{" "}
-            {facts.followNode}
-          </p>
-          <p>{facts.clips.map((item) => `${item.name} ${item.seconds.toFixed(3)}s`).join(" · ") || "No animation groups"}</p>
-          {samples.length > 0 ? (
-            <table>
-              <caption>
-                Largest motion relative to {facts.followNode}. Offsets are at 0, 0.35, 0.65, and 1. Root travel is not included.
-              </caption>
-              <thead>
-                <tr>
-                  <th>Mesh</th>
-                  <th>Travel</th>
-                  <th>Offsets</th>
-                </tr>
-              </thead>
-              <tbody>
-                {samples.slice(0, 12).map((sample) => (
-                  <tr key={sample.name}>
-                    <td>{sample.name}</td>
-                    <td>{sample.travel}</td>
-                    <td>{sample.offsetAt.map((point) => `${point.t}:${point.x},${point.y},${point.z}`).join(" ")}</td>
+        {mode === "battle" ? (
+          <div className="battle-dock">
+            <BattlePanel scene={sceneRef.current} active={mode === "battle"} onStatus={setStatus} />
+          </div>
+        ) : (
+          <section className="facts">
+            <p>{status}</p>
+            <p>
+              Meshes {facts.meshes} · materials {facts.materials} · skeletons {facts.skeletons} · joints {facts.joints} · follow{" "}
+              {facts.followNode}
+            </p>
+            <p>{facts.clips.map((item) => `${item.name} ${item.seconds.toFixed(3)}s`).join(" · ") || "No animation groups"}</p>
+            {samples.length > 0 ? (
+              <table>
+                <caption>
+                  Largest motion relative to {facts.followNode}. Offsets are at 0, 0.35, 0.65, and 1. Root travel is not included.
+                </caption>
+                <thead>
+                  <tr>
+                    <th>Mesh</th>
+                    <th>Travel</th>
+                    <th>Offsets</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : null}
-        </section>
+                </thead>
+                <tbody>
+                  {samples.slice(0, 12).map((sample) => (
+                    <tr key={sample.name}>
+                      <td>{sample.name}</td>
+                      <td>{sample.travel}</td>
+                      <td>{sample.offsetAt.map((point) => `${point.t}:${point.x},${point.y},${point.z}`).join(" ")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : null}
+          </section>
+        )}
       </main>
     </div>
   );
