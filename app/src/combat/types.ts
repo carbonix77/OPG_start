@@ -108,3 +108,6 @@ export type BattleEvent =
 
 /** Incoming damage multiplier while a Guard charge remains. */
 export const GUARD_DAMAGE_FACTOR = 0.5;
+
+/** Max simultaneous Guard charges. Guard does not stack beyond this. */
+export const MAX_GUARD_CHARGES = 1;

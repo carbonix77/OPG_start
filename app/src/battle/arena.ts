@@ -34,10 +34,11 @@ export class BattleArena {
     const rimMat = new StandardMaterial("arena-rim-mat", scene);
     rimMat.diffuseColor = new Color3(0.08, 0.1, 0.14);
     rimMat.specularColor = Color3.Black();
-    this.rim = MeshBuilder.CreateBox("arena-horizon", { width: 1400, height: 400, depth: 20 }, scene);
+    // Soft backdrop (not a stage asset). Kept low/far to avoid the black wedge in captures.
+    this.rim = MeshBuilder.CreateBox("arena-horizon", { width: 1600, height: 120, depth: 20 }, scene);
     this.rim.material = rimMat;
     this.rim.parent = this.root;
-    this.rim.position.set(0, 180, -420);
+    this.rim.position.set(0, 40, -520);
   }
 
   setSlots(slots: ArenaSlot[]): void {
@@ -86,3 +87,24 @@ export const TWO_V_TWO_SLOTS: Omit<ArenaSlot, "unitId">[] = [
   { team: "bravo", position: [220, 0, 110] },
   { team: "bravo", position: [220, 0, -110] },
 ];
+
+/** Assign units onto team-side pads from a data-driven lineup (alpha left, bravo right). */
+export function slotsForLineup(units: Array<{ id: string; team: "alpha" | "bravo" }>): ArenaSlot[] {
+  const alphaPads = TWO_V_TWO_SLOTS.filter((slot) => slot.team === "alpha");
+  const bravoPads = TWO_V_TWO_SLOTS.filter((slot) => slot.team === "bravo");
+  const out: ArenaSlot[] = [];
+  let alphaIndex = 0;
+  let bravoIndex = 0;
+  for (const unit of units) {
+    if (unit.team === "alpha") {
+      const pad = alphaPads[alphaIndex % Math.max(1, alphaPads.length)]!;
+      alphaIndex += 1;
+      out.push({ unitId: unit.id, team: "alpha", position: pad.position });
+    } else {
+      const pad = bravoPads[bravoIndex % Math.max(1, bravoPads.length)]!;
+      bravoIndex += 1;
+      out.push({ unitId: unit.id, team: "bravo", position: pad.position });
+    }
+  }
+  return out;
+}

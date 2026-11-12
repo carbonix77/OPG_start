@@ -40,7 +40,7 @@ td, th { border-bottom: 1px solid #333; text-align: left; padding: 2px 4px; vert
 }
 .app.battle-mode aside {
   order: 2;
-  max-height: none;
+  max-height: min(52vh, 560px);
   padding: 8px 12px 12px;
   border-top: 1px solid #333;
   overflow: auto;
@@ -51,7 +51,7 @@ td, th { border-bottom: 1px solid #333; text-align: left; padding: 2px 4px; vert
   width: min(100%, 1280px);
   height: auto;
   aspect-ratio: 16 / 9;
-  max-height: min(58vh, 720px);
+  max-height: min(40vh, 560px);
 }
 .battle-panel { display: grid; gap: 8px; }
 .battle-hud { display: grid; gap: 8px; }
@@ -75,7 +75,14 @@ td, th { border-bottom: 1px solid #333; text-align: left; padding: 2px 4px; vert
   border-radius: 4px;
   padding: 6px 8px;
   background: #1b1c1f;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  width: 100%;
 }
+.battle-hp-compact .battle-unit:disabled { cursor: default; opacity: 1; }
+.battle-hp-compact .battle-unit.battle-target { border-color: #c9a227; }
+.battle-lineup { display: inline-flex; gap: 6px; align-items: center; margin: 0; }
 .battle-unit-label { font-size: 12px; }
 .battle-unit-meta { font-size: 11px; color: #b7b3ac; }
 .battle-unit.battle-actor .battle-unit-label { color: #f0e6b0; }

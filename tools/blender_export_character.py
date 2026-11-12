@@ -80,11 +80,17 @@ def _mesh_index(name: str) -> int | None:
     return int(hit.group(1)) if hit else None
 
 
-def apply_texture_sheets(texture_dir: Path, map_json: dict, slot_by_mesh: list[int] | None) -> dict:
+def apply_texture_sheets(
+    texture_dir: Path,
+    map_json: dict,
+    slot_by_mesh: list[int] | None,
+    sheet_by_mesh: dict[str, str] | None = None,
+) -> dict:
     """Bind decoded PNG sheets onto mesh materials using map.json + optional slot remap."""
     if not texture_dir.exists():
         return {"materials": 0, "meshes": 0, "images": 0}
     sheet_by_key = _sheet_lookup(map_json)
+    overrides = sheet_by_mesh or {}
     mat_applied = 0
     mesh_applied = 0
 
@@ -98,7 +104,7 @@ def apply_texture_sheets(texture_dir: Path, map_json: dict, slot_by_mesh: list[i
         slot = index
         if slot_by_mesh is not None and 0 <= index < len(slot_by_mesh):
             slot = slot_by_mesh[index]
-        sheet = sheet_by_key.get(str(slot)) or sheet_by_key.get(str(index))
+        sheet = overrides.get(str(index)) or sheet_by_key.get(str(slot)) or sheet_by_key.get(str(index))
         if not sheet:
             continue
         png = texture_dir / f"{sheet}.png"
@@ -204,15 +210,23 @@ def main() -> int:
     slots_path = Path(args["slots"]) if args.get("slots") else None
     mode = args.get("mode", "ACTIONS")
     slot_by_mesh = None
+    sheet_by_mesh: dict[str, str] | None = None
     if slots_path and slots_path.exists():
         raw = json.loads(slots_path.read_text(encoding="utf-8"))
         if isinstance(raw, list):
             slot_by_mesh = [int(x) for x in raw]
+        elif isinstance(raw, dict):
+            if isinstance(raw.get("slotByMesh"), list):
+                slot_by_mesh = [int(x) for x in raw["slotByMesh"]]
+            if isinstance(raw.get("sheetByMesh"), dict):
+                sheet_by_mesh = {str(k): str(v) for k, v in raw["sheetByMesh"].items() if v}
 
     reset_scene()
     import_gltf(gltf)
     map_json = load_map(map_path) if map_path else {}
-    texture_stats = apply_texture_sheets(texture_dir, map_json, slot_by_mesh) if texture_dir else {"materials": 0, "meshes": 0, "images": 0}
+    texture_stats = (
+        apply_texture_sheets(texture_dir, map_json, slot_by_mesh, sheet_by_mesh) if texture_dir else {"materials": 0, "meshes": 0, "images": 0}
+    )
     before_actions = animation_names()
     meshes, verts = mesh_stats()
     bones = armature_bones()

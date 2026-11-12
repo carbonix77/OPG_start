@@ -1,6 +1,14 @@
 import { createRng } from "./rng";
 import { manifestOf, skillOf } from "./manifests";
-import { GUARD_DAMAGE_FACTOR, type BattleEvent, type BattleState, type CharacterManifest, type TeamId, type UnitState } from "./types";
+import {
+  GUARD_DAMAGE_FACTOR,
+  MAX_GUARD_CHARGES,
+  type BattleEvent,
+  type BattleState,
+  type CharacterManifest,
+  type TeamId,
+  type UnitState,
+} from "./types";
 
 export interface UnitSpawn {
   id: string;
@@ -283,8 +291,12 @@ export class BattleEngine {
     target.hp = Math.max(0, target.hp - damage);
     const gained = Math.max(0, skill.energyGain);
     actor.energy = Math.min(actor.maxEnergy, actor.energy + gained);
-    const guardGranted = Math.max(0, skill.grantGuardCharges ?? 0);
-    if (guardGranted > 0) actor.guardCharges += guardGranted;
+    const requestedGuard = Math.max(0, skill.grantGuardCharges ?? 0);
+    const beforeGuard = actor.guardCharges;
+    if (requestedGuard > 0) {
+      actor.guardCharges = Math.min(MAX_GUARD_CHARGES, actor.guardCharges + requestedGuard);
+    }
+    const guardGranted = actor.guardCharges - beforeGuard;
     const events: BattleEvent[] = [
       {
         type: "contact",

@@ -1,33 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  BATTLE_LINEUPS,
   BattleEngine,
-  LINEUP_2V2_STRAW_HAT,
-  NAMI_MANIFEST,
-  SANJI_MANIFEST,
-  USOPP_MANIFEST,
-  ZORO_MANIFEST,
+  assetIdForUnit,
   chooseEnemyAction,
+  lineupById,
   lineupToSpawns,
   manifestOf,
   primarySkills,
+  resolveModeForAction,
   skillOf,
   type BattleEvent,
   type BattleState,
+  type LineupDefinition,
 } from "../combat";
 import { LOCAL_ASSETS } from "../inspector/assets";
 import type { InspectorScene } from "../inspector/InspectorScene";
 import { previewForAsset } from "../inspector/previewConfig";
-import { BattleArena, TWO_V_TWO_SLOTS } from "./arena";
+import { BattleArena, slotsForLineup } from "./arena";
 import { CharacterUnitView, measureHeapMb, type CharacterLoadResult } from "./CharacterUnitView";
 import { UnitViewRegistry, type UnitViewSpec } from "./unitRegistry";
 
 const SEED = 21;
-const ZORO_ID = "zoro";
-const SANJI_ID = "sanji";
-const NAMI_ID = "nami";
-const USOPP_ID = "usopp";
-const ALLY_IDS = new Set([ZORO_ID, SANJI_ID]);
-const FIGHTER_IDS = [ZORO_ID, SANJI_ID, NAMI_ID, USOPP_ID] as const;
 
 function formatEvent(event: BattleEvent): string {
   switch (event.type) {
@@ -55,41 +49,22 @@ function formatEvent(event: BattleEvent): string {
   }
 }
 
-function makeEngine() {
-  return new BattleEngine(SEED, lineupToSpawns(LINEUP_2V2_STRAW_HAT));
+function defaultEnemyId(lineup: LineupDefinition): string {
+  return lineup.units.find((unit) => unit.team === "bravo")?.id ?? lineup.units[0]?.id ?? "";
 }
-
-const NOESIS_ASSETS: Record<string, string> = {
-  [ZORO_ID]: "noesis-roster",
-  [SANJI_ID]: "noesis-sanji",
-  [NAMI_ID]: "noesis-nami",
-  [USOPP_ID]: "noesis-usopp",
-};
-
-const GLB_ASSETS: Record<string, string> = {
-  [ZORO_ID]: "glb-zoro",
-  [SANJI_ID]: "glb-sanji",
-  [NAMI_ID]: "glb-nami",
-  [USOPP_ID]: "glb-usopp",
-};
-
-const MANIFEST_BY_UNIT = {
-  [ZORO_ID]: ZORO_MANIFEST,
-  [SANJI_ID]: SANJI_MANIFEST,
-  [NAMI_ID]: NAMI_MANIFEST,
-  [USOPP_ID]: USOPP_MANIFEST,
-} as const;
 
 export function BattlePanel(props: {
   scene: InspectorScene | null;
   active: boolean;
   onStatus: (text: string) => void;
 }) {
-  const engine = useMemo(() => makeEngine(), []);
+  const [lineupId, setLineupId] = useState(BATTLE_LINEUPS[0]!.id);
+  const lineup = useMemo(() => lineupById(lineupId), [lineupId]);
+  const [engine, setEngine] = useState(() => new BattleEngine(SEED, lineupToSpawns(lineup)));
   const [state, setState] = useState<BattleState>(() => engine.getState());
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
-  const [targetId, setTargetId] = useState(NAMI_ID);
+  const [targetId, setTargetId] = useState(() => defaultEnemyId(lineup));
   const [log, setLog] = useState<string[]>([]);
   const [loadNotes, setLoadNotes] = useState<string[]>([]);
   const [showAllMeshes, setShowAllMeshes] = useState(false);
@@ -103,6 +78,8 @@ export function BattlePanel(props: {
   const arenaRef = useRef<BattleArena | null>(null);
   const markersRef = useRef<UnitViewRegistry | null>(null);
   const charactersRef = useRef<Map<string, CharacterUnitView>>(new Map());
+  const engineRef = useRef(engine);
+  engineRef.current = engine;
 
   const clearAutoTimer = () => {
     if (autoTimerRef.current !== null) {
@@ -111,16 +88,8 @@ export function BattlePanel(props: {
     }
   };
 
-  const slots = useMemo(
-    () =>
-      [
-        { unitId: ZORO_ID, ...TWO_V_TWO_SLOTS[0] },
-        { unitId: SANJI_ID, ...TWO_V_TWO_SLOTS[1] },
-        { unitId: NAMI_ID, ...TWO_V_TWO_SLOTS[2] },
-        { unitId: USOPP_ID, ...TWO_V_TWO_SLOTS[3] },
-      ] as const,
-    [],
-  );
+  const slots = useMemo(() => slotsForLineup(lineup.units), [lineup]);
+  const fighterIds = useMemo(() => lineup.units.map((unit) => unit.id), [lineup]);
 
   useEffect(() => {
     mounted.current = true;
@@ -148,12 +117,17 @@ export function BattlePanel(props: {
     clearAutoTimer();
     const scene = props.scene;
     scene.prepareBattleScene();
+    // True 16:9 drawing buffer for review captures.
+    scene.engine.setSize(1280, 720, true);
+    scene.camera.radius = 480;
+    scene.camera.alpha = 0.35;
+    scene.camera.beta = 1.05;
     const arena = new BattleArena(scene.scene);
     const markers = new UnitViewRegistry(scene.scene);
     arena.setSlots([...slots]);
     const markerSpecs: UnitViewSpec[] = slots.map((slot) => ({
       id: slot.unitId,
-      label: engine.getState().units.find((unit) => unit.id === slot.unitId)?.label ?? slot.unitId,
+      label: engineRef.current.getState().units.find((unit) => unit.id === slot.unitId)?.label ?? slot.unitId,
       team: slot.team,
       kind: "character",
       position: slot.position,
@@ -162,52 +136,48 @@ export function BattlePanel(props: {
     arenaRef.current = arena;
     markersRef.current = markers;
     scene.camera.setTarget(arena.cameraTarget());
-    scene.camera.radius = 720;
-    scene.camera.alpha = 0.22;
-    scene.camera.beta = 1.12;
-
-    const assetByUnit = assetSource === "glb" ? GLB_ASSETS : NOESIS_ASSETS;
 
     const load = async () => {
       const notes: string[] = [];
       const results: CharacterLoadResult[] = [];
-      for (const [index, unitId] of FIGHTER_IDS.entries()) {
-        const assetId = assetByUnit[unitId];
+      for (const [index, unit] of lineup.units.entries()) {
+        const assetId = assetIdForUnit(unit, assetSource);
         const asset = LOCAL_ASSETS.find((item) => item.id === assetId);
         const preview = previewForAsset(assetId);
         if (!asset || !preview) {
-          notes.push(`Missing asset/preview for ${unitId} (${assetId}).`);
+          notes.push(`Missing asset/preview for ${unit.id} (${assetId}).`);
           continue;
         }
-        const unit = new CharacterUnitView(unitId, scene.scene);
-        charactersRef.current.set(unitId, unit);
+        const view = new CharacterUnitView(unit.id, scene.scene);
+        charactersRef.current.set(unit.id, view);
         try {
-          const result = await unit.load(asset, preview, slots[index].position, {
+          const result = await view.load(asset, preview, slots[index]!.position, {
             preferEmbeddedTextures: assetSource === "glb",
           });
           if (cancelled || session !== sessionRef.current) return;
-          unit.setShowAllMeshes(showAllMeshes);
+          view.setShowAllMeshes(showAllMeshes);
           results.push(result);
-          const slot = slots[index];
+          const slot = slots[index]!;
           const durationNote = Object.entries(result.clipDurations)
             .map(([name, sec]) => `${name}:${sec}s`)
             .join(", ");
           notes.push(
-            `${unitId}←${asset.id} @ [${slot.position.join(",")}] ${result.meshes} meshes, ${result.skeletons} skel/${result.joints} joints, clips ${result.clips.join(", ")}, durations [${durationNote}], ${result.loadMs} ms, textures ${result.textureNotes}, embedded ${result.embeddedTextures}${result.usedEmbeddedOnly ? " (embedded-only)" : ""}${result.textureError ? ` (${result.textureError})` : ""}.`,
+            `${unit.id}←${asset.id} @ [${slot.position.join(",")}] ${result.meshes} meshes, ${result.skeletons} skel/${result.joints} joints, clips ${result.clips.join(", ")}, durations [${durationNote}], ${result.loadMs} ms, textures ${result.textureNotes}, embedded ${result.embeddedTextures}${result.usedEmbeddedOnly ? " (embedded-only)" : ""}${result.textureError ? ` (${result.textureError})` : ""}.`,
           );
-          unit.playIdle(MANIFEST_BY_UNIT[unitId].idleClip);
-          markers.hidePlaceholder(unitId);
+          const manifest = manifestOf(unit.manifestId);
+          view.playIdle(manifest?.idleClip ?? null);
+          markers.hidePlaceholder(unit.id);
         } catch (error) {
-          notes.push(`${unitId} load failed: ${error instanceof Error ? error.message : String(error)}`);
+          notes.push(`${unit.id} load failed: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
       if (cancelled || session !== sessionRef.current) return;
       setLoadNotes(notes);
-      setReady(results.length === FIGHTER_IDS.length);
+      setReady(results.length === lineup.units.length);
       const heap = measureHeapMb();
       const textured = results.filter((row) => row.textured).length;
       props.onStatus(
-        `Loaded ${results.length}/${FIGHTER_IDS.length} fighters (${textured}/${results.length} textured). Heap ${heap ?? "?"} MB.`,
+        `Loaded ${results.length}/${lineup.units.length} fighters (${textured}/${results.length} textured). Heap ${heap ?? "?"} MB. Canvas ${scene.engine.getRenderWidth()}×${scene.engine.getRenderHeight()}.`,
       );
     };
     void load();
@@ -225,7 +195,7 @@ export function BattlePanel(props: {
       if (markersRef.current === markers) markersRef.current = null;
       setReady(false);
     };
-  }, [props.active, props.scene, engine, slots, assetSource]);
+  }, [props.active, props.scene, slots, assetSource, lineup]);
 
   useEffect(() => {
     for (const unit of charactersRef.current.values()) unit.setShowAllMeshes(showAllMeshes);
@@ -233,7 +203,7 @@ export function BattlePanel(props: {
 
   const refresh = (events: BattleEvent[] = []) => {
     if (!mounted.current) return;
-    const next = engine.getState();
+    const next = engineRef.current.getState();
     setState(next);
     for (const unit of next.units) {
       markersRef.current?.setAlive(unit.id, unit.alive);
@@ -247,7 +217,7 @@ export function BattlePanel(props: {
   const actorId = engine.currentActorId();
   const actor = state.units.find((unit) => unit.id === actorId);
   const actorManifest = actor ? manifestOf(actor.manifestId) : null;
-  const playerActor = actorId && ALLY_IDS.has(actorId) ? actorId : null;
+  const playerActor = actor && actor.team === "alpha" ? actor.id : null;
   const playerSkills = actorManifest && playerActor ? primarySkills(actorManifest) : [];
   const queue = engine.turnQueue(6);
 
@@ -262,44 +232,44 @@ export function BattlePanel(props: {
     session: number,
     onDone: () => void,
   ) => {
-    const manifest = manifestOf(engine.getState().units.find((unit) => unit.id === unitId)?.manifestId ?? "");
+    const eng = engineRef.current;
+    const manifest = manifestOf(eng.getState().units.find((unit) => unit.id === unitId)?.manifestId ?? "");
     const skill = manifest ? skillOf(manifest, skillId) : null;
     const character = charactersRef.current.get(unitId);
     if (!manifest || !skill) {
       onDone();
       return;
     }
-    const started = engine.beginAction(unitId, skillId, target);
+    const started = eng.beginAction(unitId, skillId, target);
     refresh(started);
-    const engineId = engine.currentActionId();
+    const engineId = eng.currentActionId();
     if (engineId === null) {
       onDone();
       return;
     }
-    // Rendered battles only auto-resolve contact without a clip for declared synthetic units.
-    const synthetic = !manifest.assetId;
-    if (!character || (!skill.clipId && synthetic)) {
-      const events = [...engine.applyContact(engineId), ...engine.finishAction(engineId)];
+    const policy = resolveModeForAction(manifest, skill, !!character);
+    if (policy.mode === "instant") {
+      const events = [...eng.applyContact(engineId), ...eng.finishAction(engineId)];
       markersRef.current?.flash(target);
       charactersRef.current.get(target)?.flash();
       refresh(events.filter((event) => event.type !== "blocked"));
       onDone();
       return;
     }
-    if (!skill.clipId) {
-      refresh(engine.abortAction(`Unit ${unitId} has no clip for ${skillId}.`, engineId));
+    if (policy.mode === "abort") {
+      refresh(eng.abortAction(policy.reason, engineId));
       onDone();
-      props.onStatus(`Missing clip for ${skillId}; action aborted (no silent damage).`);
+      props.onStatus(policy.reason);
       return;
     }
-    const played = character.playSkill(
+    const played = character!.playSkill(
       manifest.idleClip,
-      skill.clipId,
+      skill.clipId!,
       skill.contact,
       (token) => {
         if (!mounted.current || session !== sessionRef.current) return;
         if (liveAction.current?.presentToken !== token || liveAction.current.engineId !== engineId) return;
-        const contact = engine.applyContact(engineId);
+        const contact = eng.applyContact(engineId);
         markersRef.current?.flash(target);
         charactersRef.current.get(target)?.flash();
         refresh(contact);
@@ -307,14 +277,14 @@ export function BattlePanel(props: {
       (token) => {
         if (!mounted.current || session !== sessionRef.current) return;
         if (liveAction.current?.presentToken !== token || liveAction.current.engineId !== engineId) return;
-        refresh(engine.finishAction(engineId));
+        refresh(eng.finishAction(engineId));
         liveAction.current = null;
         onDone();
       },
     );
     liveAction.current = { engineId, presentToken: played.token, unitId };
     if (played.mode === "missing") {
-      refresh(engine.abortAction(played.note, engineId));
+      refresh(eng.abortAction(played.note, engineId));
       liveAction.current = null;
       onDone();
       props.onStatus(played.note);
@@ -326,17 +296,19 @@ export function BattlePanel(props: {
   const autoResolveUntilPlayerOrEnd = (session: number) => {
     const step = () => {
       if (!mounted.current || session !== sessionRef.current) return;
-      const current = engine.getState();
+      const eng = engineRef.current;
+      const current = eng.getState();
       if (current.phase === "ended") {
         setBusy(false);
         return;
       }
-      const nextActor = engine.currentActorId();
-      if (!nextActor || ALLY_IDS.has(nextActor)) {
+      const nextActor = eng.currentActorId();
+      const nextUnit = current.units.find((unit) => unit.id === nextActor);
+      if (!nextActor || nextUnit?.team === "alpha") {
         setBusy(false);
         return;
       }
-      const decision = chooseEnemyAction(engine);
+      const decision = chooseEnemyAction(eng);
       if (!decision) {
         setBusy(false);
         props.onStatus(`Enemy ${nextActor} has no legal action.`);
@@ -346,8 +318,9 @@ export function BattlePanel(props: {
       props.onStatus(`AI ${decision.reason}`);
       playUnitSkill(decision.actorId, decision.skillId, decision.targetId, session, () => {
         if (!mounted.current || session !== sessionRef.current) return;
-        const follow = engine.currentActorId();
-        if (follow && !ALLY_IDS.has(follow) && engine.getState().phase !== "ended") {
+        const follow = eng.currentActorId();
+        const followUnit = eng.getState().units.find((unit) => unit.id === follow);
+        if (follow && followUnit?.team === "bravo" && eng.getState().phase !== "ended") {
           clearAutoTimer();
           autoTimerRef.current = window.setTimeout(step, 40);
         } else {
@@ -372,6 +345,24 @@ export function BattlePanel(props: {
     });
   };
 
+  const applyLineup = (nextId: string) => {
+    if (busy) return;
+    clearAutoTimer();
+    sessionRef.current += 1;
+    liveAction.current = null;
+    for (const unit of charactersRef.current.values()) unit.cancelAction();
+    const nextLineup = lineupById(nextId);
+    const nextEngine = new BattleEngine(SEED, lineupToSpawns(nextLineup));
+    setLineupId(nextId);
+    setEngine(nextEngine);
+    setState(nextEngine.getState());
+    setLog([]);
+    setBenchNote("");
+    setTargetId(defaultEnemyId(nextLineup));
+    setReady(false);
+    props.onStatus(`Lineup → ${nextLineup.label}`);
+  };
+
   const reset = () => {
     if (busy) return;
     clearAutoTimer();
@@ -382,15 +373,16 @@ export function BattlePanel(props: {
     setLog([]);
     setBenchNote("");
     refresh();
-    for (const unitId of FIGHTER_IDS) {
-      charactersRef.current.get(unitId)?.playIdle(MANIFEST_BY_UNIT[unitId].idleClip);
-      markersRef.current?.hidePlaceholder(unitId);
+    for (const unit of lineup.units) {
+      const manifest = manifestOf(unit.manifestId);
+      charactersRef.current.get(unit.id)?.playIdle(manifest?.idleClip ?? null);
+      markersRef.current?.hidePlaceholder(unit.id);
     }
     for (const unit of engine.getState().units) {
       markersRef.current?.setAlive(unit.id, true);
       charactersRef.current.get(unit.id)?.setEnabled(true);
     }
-    setTargetId(NAMI_ID);
+    setTargetId(defaultEnemyId(lineup));
     props.onStatus("2v2 reset. Energy and HP restored.");
   };
 
@@ -418,6 +410,16 @@ export function BattlePanel(props: {
       <div className="battle-hud">
         <div className="battle-hud-top">
           <strong>2v2</strong>
+          <label className="battle-lineup">
+            Lineup
+            <select value={lineupId} disabled={busy} onChange={(event) => applyLineup(event.target.value)}>
+              {BATTLE_LINEUPS.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <span>
             Actor {actor?.label ?? "—"} · EN {actor?.energy ?? 0}/{actor?.maxEnergy ?? 0}
             {actor && actor.guardCharges > 0 ? ` · Guard×${actor.guardCharges}` : ""}
@@ -427,26 +429,6 @@ export function BattlePanel(props: {
         {state.phase === "ended" ? (
           <p className="battle-result">{state.winner === "alpha" ? "Victory" : "Defeat"} — winner {state.winner}</p>
         ) : null}
-        <div className="battle-hp battle-hp-compact">
-          {state.units.map((unit) => (
-            <div
-              key={unit.id}
-              className={`battle-unit${unit.id === actorId ? " battle-actor" : ""}${unit.alive ? "" : " battle-down"}`}
-            >
-              <div className="battle-unit-label">
-                {unit.label}
-                {unit.alive ? "" : " KO"}
-                {unit.guardCharges > 0 ? ` G${unit.guardCharges}` : ""}
-              </div>
-              <div className="battle-bar">
-                <span style={{ width: `${Math.max(0, (unit.hp / unit.maxHp) * 100)}%` }} />
-              </div>
-              <div className="battle-unit-meta">
-                {unit.hp}/{unit.maxHp} · EN {unit.energy}/{unit.maxEnergy}
-              </div>
-            </div>
-          ))}
-        </div>
         <div className="battle-commands">
           <label className="battle-target">
             Target
@@ -457,7 +439,8 @@ export function BattlePanel(props: {
             >
               {livingEnemies.map((unit) => (
                 <option key={unit.id} value={unit.id}>
-                  {unit.label} ({unit.hp}/{unit.maxHp})
+                  {unit.label} ({unit.hp}/{unit.maxHp}
+                  {unit.guardCharges > 0 ? ` G${unit.guardCharges}` : ""})
                 </option>
               ))}
             </select>
@@ -494,12 +477,37 @@ export function BattlePanel(props: {
             </button>
           </div>
         </div>
+        <div className="battle-hp battle-hp-compact">
+          {state.units.map((unit) => (
+            <button
+              type="button"
+              key={unit.id}
+              className={`battle-unit${unit.id === actorId ? " battle-actor" : ""}${unit.alive ? "" : " battle-down"}${unit.team === "bravo" && unit.id === selected ? " battle-target" : ""}`}
+              disabled={!unit.alive || unit.team !== "bravo" || busy || state.phase === "ended"}
+              onClick={() => setTargetId(unit.id)}
+            >
+              <div className="battle-unit-label">
+                {unit.label}
+                {unit.alive ? "" : " KO"}
+                {unit.guardCharges > 0 ? ` G${unit.guardCharges}` : ""}
+              </div>
+              <div className="battle-bar">
+                <span style={{ width: `${Math.max(0, (unit.hp / unit.maxHp) * 100)}%` }} />
+              </div>
+              <div className="battle-unit-meta">
+                {unit.hp}/{unit.maxHp} · EN {unit.energy}/{unit.maxEnergy}
+                {unit.guardCharges > 0 ? ` · Guard×${unit.guardCharges}` : ""}
+              </div>
+            </button>
+          ))}
+        </div>
         {!ready ? <p className="note">Loading fighters…</p> : null}
         {busy ? <p className="note">Action in progress.</p> : null}
       </div>
       <details className="battle-debug">
         <summary>Developer / diagnostics</summary>
-        <p className="note">Basic +1 EN · Special −3 · Guard −1 (custom tactical, not authentic PW4).</p>
+        <p className="note">Basic +1 EN · Special −3 · Guard −1 (custom tactical, not authentic PW4). Cap 1 Guard charge.</p>
+        <p className="note">Fighters: {fighterIds.join(", ")}</p>
         <label>
           Asset source
           <select

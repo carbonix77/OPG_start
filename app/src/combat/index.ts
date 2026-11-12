@@ -2,8 +2,15 @@ export { chooseEnemyAction } from "./ai";
 export type { EnemyDecision } from "./ai";
 export { BattleEngine, makeBalancedFiveVFive } from "./engine";
 export type { UnitSpawn } from "./engine";
-export { LINEUP_2V2_STRAW_HAT, lineupToSpawns } from "./lineups";
-export type { LineupUnit } from "./lineups";
+export {
+  BATTLE_LINEUPS,
+  LINEUP_2V2_MIXED,
+  LINEUP_2V2_STRAW_HAT,
+  assetIdForUnit,
+  lineupById,
+  lineupToSpawns,
+} from "./lineups";
+export type { LineupDefinition, LineupUnit } from "./lineups";
 export {
   DUMMY_MANIFEST,
   FIXTURE_MANIFEST,
@@ -15,8 +22,10 @@ export {
   primarySkills,
   skillOf,
 } from "./manifests";
+export { resolveModeForAction } from "./resolvePolicy";
+export type { ResolveMode } from "./resolvePolicy";
 export { createRng } from "./rng";
-export { GUARD_DAMAGE_FACTOR } from "./types";
+export { GUARD_DAMAGE_FACTOR, MAX_GUARD_CHARGES } from "./types";
 export type {
   BattleEvent,
   BattlePhase,

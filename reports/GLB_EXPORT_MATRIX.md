@@ -2,20 +2,26 @@
 
 Blender: `D:\\blender\\blender.exe` (owner-authorized, 5.2.2 LTS). Binaries stay under ignored `private-assets/glb/`.
 
-Status: **PASS** = clips + mesh-bound textures · **PARTIAL** = clips OK, textures incomplete · **FAIL** = missing clips/file.
+Statuses are **separate** (do not collapse into one PASS):
 
-| Character | Status | Size | Clips src→glb | Missing | Bones | Meshes | Tex meshes | Images | Babylon smoke (embedded-only) |
-|-----------|:------:|-----:|--------------:|---------|------:|-------:|-----------:|-------:|-------------------------------|
-| zoro | PASS | 7362004 | 9→9 | — | 141→141 | 41→41 | 37 | 9 | 36 embedded textures · 9 clips+durations · concurrent 2v2 OK |
+| Label | Meaning |
+|-------|---------|
+| structural | source vs GLB clips/bones/meshes |
+| embedded | mesh-bound textures present in file |
+| visual parity | matched Noesis vs embedded-GLB look (honest) |
+| action playback | idle/basic/special sampled in Babylon battle |
+| memory/perf | measured separately in REVIEW |
 
-- Zoro phantoms in source: ['Zoro_1322', 'Zoro_1324']; in GLB: ['Zoro_1322', 'Zoro_1324'].
-| sanji | PASS | 6791856 | 6→6 | — | 324→324 | 39→39 | 32 | 4 | 25 embedded · 6 clips+durations · concurrent OK |
-| nami | PASS | 4480624 | 3→3 | — | 158→158 | 25→25 | 24 | 5 | 11 embedded (after hide) · 3 clips+durations · concurrent OK |
-| usopp | PASS | 5744864 | 3→3 | — | 319→319 | 44→44 | 37 | 5 | 20 embedded (after hide) · 3 clips+durations · concurrent OK |
+| Character | structural | embedded | visual parity | Size | Clips | Bones | Tex meshes | Images |
+|-----------|:----------:|:--------:|:-------------:|-----:|------:|------:|-----------:|-------:|
+| zoro | PASS | PASS | PARTIAL (slot remap applied; verify in REVIEW30 shots) | see report | 9→9 | 141→141 | 37 | 9 |
+| sanji | PASS | PASS | UNVERIFIED | | 6→6 | 324→324 | 32 | 4 |
+| nami | PASS | PASS | UNVERIFIED | | 3→3 | 158→158 | 24 | 5 |
+| usopp | PASS | PASS | UNVERIFIED | | 3→3 | 319→319 | 37 | 5 |
 
 ## Notes
-- Textures are reconstructed from local decoded PNG + `map.json` / mesh slots (not authenticated original shading).
-- Full geometry retained; Babylon hide preset remains reversible presentation.
-- Battle GLB mode uses `preferEmbeddedTextures` (no temporary-look override) for self-contained validation.
+- Zoro `tools/glb_slots/zoro.json` now mirrors `ZORO_PREVIEW.materialSlotByMesh` + mouth `sheetByMesh` (was identity → wrong orange cloth).
+- Textures are reconstructed from local decoded PNG + map/slots (not authenticated original shading).
+- Full geometry retained; Babylon hide preset remains reversible.
+- Battle GLB mode uses `preferEmbeddedTextures` (no temporary-look override).
 - Re-run: `python tools/export_all_characters.py`
-

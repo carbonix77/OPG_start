@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { meshIndexOf, previewForAsset } from "../inspector/previewConfig";
 import { chooseEnemyAction } from "./ai";
 import { BattleEngine, makeBalancedFiveVFive } from "./engine";
-import { LINEUP_2V2_STRAW_HAT, lineupToSpawns } from "./lineups";
+import { LINEUP_2V2_MIXED, LINEUP_2V2_STRAW_HAT, lineupToSpawns } from "./lineups";
 import {
   FIXTURE_MANIFEST,
   NAMI_MANIFEST,
@@ -12,6 +12,8 @@ import {
   primarySkills,
   skillOf,
 } from "./manifests";
+import { resolveModeForAction } from "./resolvePolicy";
+import { MAX_GUARD_CHARGES } from "./types";
 
 function duo(seed: number, dummyHp = 60) {
   return new BattleEngine(seed, [
@@ -441,5 +443,29 @@ describe("BattleEngine", () => {
     expect(ended.phase).toBe("ended");
     expect(ended.winner === "alpha" || ended.winner === "bravo").toBe(true);
     expect(ended.log.some((event) => event.type === "unit-defeated")).toBe(true);
+  });
+
+  it("supports the alternate mixed lineup without engine edits", () => {
+    const engine = new BattleEngine(22, lineupToSpawns(LINEUP_2V2_MIXED));
+    const alpha = engine.getState().units.filter((unit) => unit.team === "alpha").map((unit) => unit.id);
+    const bravo = engine.getState().units.filter((unit) => unit.team === "bravo").map((unit) => unit.id);
+    expect(alpha).toEqual(["zoro", "nami"]);
+    expect(bravo).toEqual(["sanji", "usopp"]);
+  });
+
+  it("caps Guard charges and aborts skinned missing-view actions without damage", () => {
+    const engine = new BattleEngine(14, [
+      { id: "zoro", manifestId: ZORO_MANIFEST.id, team: "alpha", speed: 30, startEnergy: 5 },
+      { id: "dummy", manifestId: "synthetic-dummy", team: "bravo", speed: 1, maxHp: 100 },
+    ]);
+    engine.resolveFully("zoro", "guard", "zoro");
+    expect(engine.getState().units.find((unit) => unit.id === "zoro")!.guardCharges).toBe(1);
+    expect(engine.getState().units.find((unit) => unit.id === "zoro")!.guardCharges).toBeLessThanOrEqual(MAX_GUARD_CHARGES);
+    const dummyHp = engine.getState().units.find((unit) => unit.id === "dummy")!.hp;
+    expect(resolveModeForAction(ZORO_MANIFEST, skillOf(ZORO_MANIFEST, "basic"), false).mode).toBe("abort");
+    expect(
+      resolveModeForAction({ ...FIXTURE_MANIFEST, assetId: null }, skillOf(FIXTURE_MANIFEST, "action-a"), false).mode,
+    ).toBe("instant");
+    expect(dummyHp).toBe(100);
   });
 });
