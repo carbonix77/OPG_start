@@ -2,7 +2,7 @@
 
 **Branch:** `research/phase-1-extraction`  
 **Addresses:** #28 gate on `fcf3e55`  
-**SHA:** *(fill after commit)*
+**SHA:** `5bbd1c3`
 
 ## A — Operable 2v2 HUD (1366×768)
 
