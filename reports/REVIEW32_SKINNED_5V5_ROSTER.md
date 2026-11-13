@@ -11,8 +11,9 @@
 - With 10 skinned units, dummy fillers are **0** (full skinned field).
 - New / updated manifests + preview configs + `assets.ts` entries for Ace/Brook/Chopper/Robin/Franky/Luffy.
 - Clip mesh overrides of note:
-  - Franky: `right_fist2` / `right_fist_3` on all clips; `weapon4` only on Radical Beam.
+  - Franky: `weapon2` / `right_fist2` / `right_fist_3` **hidden on all clips**; `weapon4` only on Radical Beam.
   - Brook: violin/holder show-hide per clip (unchanged this review).
+- Follow-up (post `63b01c4`): Franky fist/weapon2 hide flip — retested `npm test` → **28 passed**.
 - Luffy battle clips: `Idle`, `Attack`, `Block`, `Hit`, `Death`, `Bazooka`, `Gattling`.
 - Luffy export helper: `tools/_export_luffy_battle_glb.py` (blend → slim `private-assets/glb/luffy.glb`; GLBs remain gitignored).
 - **Bugfix:** Luffy Bazooka had `recovery: 1.05` which violated engine `recovery <= 1` and crashed 5v5 construction. Set to `1.0`.

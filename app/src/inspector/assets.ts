@@ -131,7 +131,7 @@ export const LOCAL_ASSETS: LocalAsset[] = [
     id: "glb-franky",
     label: "Battle GLB Franky (local)",
     relativePath: "private-assets/glb/franky.glb",
-    note: "Slim battle copy from Blender_Models/Franky/Franky.glb. Named clips: Idle, Attack, Block, Hit, Death, Radical_Beam_1/2, Strong_Right. right_fist2/right_fist_3 on all clips; weapon4 only on Radical Beam. Rebuild: python tools/trim_battle_glb.py franky",
+    note: "Slim battle copy from Blender_Models/Franky/Franky.glb. Named clips: Idle, Attack, Block, Hit, Death, Radical_Beam_1/2, Strong_Right. weapon2/right_fist2/right_fist_3 hidden on all clips; weapon4 only on Radical Beam. Rebuild: python tools/trim_battle_glb.py franky",
   },
   {
     id: "glb-luffy",

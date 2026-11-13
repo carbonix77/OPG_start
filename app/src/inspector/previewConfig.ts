@@ -1148,10 +1148,13 @@ export const FRANKY_GLB_PREVIEW: PreviewConfig = {
   materialSlotByMesh: null,
   sheetByMesh: {},
   excludedMeshIndices: [],
-  // weapon4 excluded by default (shown on Radical Beam). Fists stay in the keep set.
+  // weapon4 excluded by default (shown on Radical Beam). right_fist2/3 + weapon2 always hidden.
   excludedMeshNames: [
     "Icosphere",
     "weapon4",
+    "weapon2",
+    "right_fist2",
+    "right_fist_3",
     "driver_0",
     "driver_1",
     "driver_2",
@@ -1195,16 +1198,16 @@ export const FRANKY_GLB_PREVIEW: PreviewConfig = {
     "model_0_submesh_33_noesis_meshnode_0033",
     "model_0_submesh_34_noesis_meshnode_0034",
   ],
-  // right_fist2 / right_fist_3 always on; weapon4 only during Radical Beam.
+  // right_fist2 / right_fist_3 / weapon2 always hidden; weapon4 only during Radical Beam.
   clipMeshOverrides: {
-    Idle: { hide: ["weapon4"], show: ["right_fist2", "right_fist_3"] },
-    Attack: { hide: ["weapon4"], show: ["right_fist2", "right_fist_3"] },
-    Block: { hide: ["weapon4"], show: ["right_fist2", "right_fist_3"] },
-    Hit: { hide: ["weapon4"], show: ["right_fist2", "right_fist_3"] },
-    Death: { hide: ["weapon4"], show: ["right_fist2", "right_fist_3"] },
-    Strong_Right: { hide: ["weapon4"], show: ["right_fist2", "right_fist_3"] },
-    Radical_Beam_1: { show: ["weapon4", "right_fist2", "right_fist_3"] },
-    Radical_Beam_2: { show: ["weapon4", "right_fist2", "right_fist_3"] },
+    Idle: { hide: ["weapon4", "weapon2", "right_fist2", "right_fist_3"] },
+    Attack: { hide: ["weapon4", "weapon2", "right_fist2", "right_fist_3"] },
+    Block: { hide: ["weapon4", "weapon2", "right_fist2", "right_fist_3"] },
+    Hit: { hide: ["weapon4", "weapon2", "right_fist2", "right_fist_3"] },
+    Death: { hide: ["weapon4", "weapon2", "right_fist2", "right_fist_3"] },
+    Strong_Right: { hide: ["weapon4", "weapon2", "right_fist2", "right_fist_3"] },
+    Radical_Beam_1: { hide: ["weapon2", "right_fist2", "right_fist_3"], show: ["weapon4"] },
+    Radical_Beam_2: { hide: ["weapon2", "right_fist2", "right_fist_3"], show: ["weapon4"] },
   },
   behaviors: [
     { id: "idle", clip: "Idle", label: "Idle", confidence: "named" },
