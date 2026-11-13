@@ -1,6 +1,13 @@
+import { createRng } from "./rng";
 import type { UnitSpawn } from "./engine";
 import {
+  ACE_MANIFEST,
+  BROOK_MANIFEST,
+  CHOPPER_MANIFEST,
+  FRANKY_MANIFEST,
+  LUFFY_MANIFEST,
   NAMI_MANIFEST,
+  ROBIN_MANIFEST,
   SANJI_MANIFEST,
   SYNTHETIC_MANIFEST,
   USOPP_MANIFEST,
@@ -62,6 +69,117 @@ const USOPP: Omit<LineupUnit, "team" | "speed" | "maxHp"> = {
   glbAssetId: "glb-usopp",
   presentation: "skinned",
 };
+const ACE: Omit<LineupUnit, "team" | "speed" | "maxHp"> = {
+  id: "ace",
+  manifestId: ACE_MANIFEST.id,
+  label: "Ace",
+  glbAssetId: "glb-ace",
+  presentation: "skinned",
+};
+const BROOK: Omit<LineupUnit, "team" | "speed" | "maxHp"> = {
+  id: "brook",
+  manifestId: BROOK_MANIFEST.id,
+  label: "Brook",
+  glbAssetId: "glb-brook",
+  presentation: "skinned",
+};
+const CHOPPER: Omit<LineupUnit, "team" | "speed" | "maxHp"> = {
+  id: "chopper",
+  manifestId: CHOPPER_MANIFEST.id,
+  label: "Chopper",
+  glbAssetId: "glb-chopper",
+  presentation: "skinned",
+};
+const ROBIN: Omit<LineupUnit, "team" | "speed" | "maxHp"> = {
+  id: "robin",
+  manifestId: ROBIN_MANIFEST.id,
+  label: "Robin",
+  glbAssetId: "glb-robin",
+  presentation: "skinned",
+};
+const FRANKY: Omit<LineupUnit, "team" | "speed" | "maxHp"> = {
+  id: "franky",
+  manifestId: FRANKY_MANIFEST.id,
+  label: "Franky",
+  glbAssetId: "glb-franky",
+  presentation: "skinned",
+};
+const LUFFY: Omit<LineupUnit, "team" | "speed" | "maxHp"> = {
+  id: "luffy",
+  manifestId: LUFFY_MANIFEST.id,
+  label: "Luffy",
+  glbAssetId: "glb-luffy",
+  presentation: "skinned",
+};
+
+/** Every skinned battle character currently wired. */
+export const SKINNED_BATTLE_ROSTER: ReadonlyArray<Omit<LineupUnit, "team" | "speed" | "maxHp">> = [
+  ZORO,
+  SANJI,
+  NAMI,
+  USOPP,
+  ACE,
+  BROOK,
+  CHOPPER,
+  ROBIN,
+  FRANKY,
+  LUFFY,
+];
+
+const FIVE_V_FIVE_ID = "synth-5v5";
+const FIVE_V_FIVE_SIZE = 10;
+const TEAM_SIZE = 5;
+
+function shuffleInPlace<T>(items: T[], rand: () => number): void {
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rand() * (i + 1));
+    const tmp = items[i]!;
+    items[i] = items[j]!;
+    items[j] = tmp;
+  }
+}
+
+/**
+ * 5v5 with every wired skinned character placed randomly across both teams,
+ * then synthetic dummies filling remaining slots.
+ */
+export function buildRandom5v5Lineup(seed: number): LineupDefinition {
+  const rand = createRng(seed);
+  const skinned = SKINNED_BATTLE_ROSTER.map((unit) => ({ ...unit }));
+  shuffleInPlace(skinned, rand);
+
+  const dummyCount = Math.max(0, FIVE_V_FIVE_SIZE - skinned.length);
+  const dummies: LineupUnit[] = Array.from({ length: dummyCount }, (_, i) => ({
+    id: `dummy-${i}`,
+    manifestId: SYNTHETIC_MANIFEST.id,
+    team: "alpha",
+    label: `Dummy ${i + 1}`,
+    speed: 7 + i,
+    presentation: "synthetic" as const,
+  }));
+
+  const pool: LineupUnit[] = [
+    ...skinned.map((unit) => ({ ...unit, team: "alpha" as const })),
+    ...dummies,
+  ];
+  shuffleInPlace(pool, rand);
+
+  const units = pool.map((unit, index) => {
+    const team = index < TEAM_SIZE ? ("alpha" as const) : ("bravo" as const);
+    const slot = index % TEAM_SIZE;
+    return {
+      ...unit,
+      team,
+      speed: unit.speed ?? 10 + slot * 2,
+    };
+  });
+
+  return {
+    id: FIVE_V_FIVE_ID,
+    label: "Random roster 5v5",
+    units,
+  };
+}
 
 /** Classic: Zoro+Sanji vs Nami+Usopp. */
 export const LINEUP_2V2_STRAW_HAT: LineupDefinition = {
@@ -87,33 +205,15 @@ export const LINEUP_2V2_MIXED: LineupDefinition = {
   ],
 };
 
-/** Ten synthetic placeholders — feasibility test, not skinned GLBs. */
-export const LINEUP_5V5_SYNTHETIC: LineupDefinition = {
-  id: "synth-5v5",
-  label: "Synthetic 5v5 (feasibility)",
-  units: Array.from({ length: 5 }, (_, i) => [
-    {
-      id: `a${i}`,
-      manifestId: SYNTHETIC_MANIFEST.id,
-      team: "alpha" as const,
-      label: `A${i}`,
-      speed: 8 + i * 2,
-      presentation: "synthetic" as const,
-    },
-    {
-      id: `b${i}`,
-      manifestId: SYNTHETIC_MANIFEST.id,
-      team: "bravo" as const,
-      label: `B${i}`,
-      speed: 9 + i * 2,
-      presentation: "synthetic" as const,
-    },
-  ]).flat(),
-};
+/** Catalog entry / deterministic sample (seed 42). Prefer buildRandom5v5Lineup() for live fights. */
+export const LINEUP_5V5_SYNTHETIC: LineupDefinition = buildRandom5v5Lineup(42);
 
 export const BATTLE_LINEUPS: LineupDefinition[] = [LINEUP_2V2_STRAW_HAT, LINEUP_2V2_MIXED, LINEUP_5V5_SYNTHETIC];
 
 export function lineupById(id: string): LineupDefinition {
+  if (id === FIVE_V_FIVE_ID) {
+    return buildRandom5v5Lineup((Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0);
+  }
   return BATTLE_LINEUPS.find((row) => row.id === id) ?? LINEUP_2V2_STRAW_HAT;
 }
 

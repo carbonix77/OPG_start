@@ -103,6 +103,42 @@ export const LOCAL_ASSETS: LocalAsset[] = [
     relativePath: "private-assets/glb/usopp.glb",
     note: "Slim battle copy from Blender_Models/Usopp/Usopp.glb. Named clips: Idle, Attack, Block, Hit, Death, Fire_Star, Sunflower_Star. Rebuild: python tools/trim_battle_glb.py usopp",
   },
+  {
+    id: "glb-ace",
+    label: "Battle GLB Ace (local)",
+    relativePath: "private-assets/glb/ace.glb",
+    note: "Slim battle copy from Blender_Models/Ace/Ace.glb. Named clips: Idle, Attack, Block, Hit, Death, Fire_Fist, Flame_Emperor. Rebuild: python tools/trim_battle_glb.py ace",
+  },
+  {
+    id: "glb-brook",
+    label: "Battle GLB Brook (local)",
+    relativePath: "private-assets/glb/brook.glb",
+    note: "Slim battle copy from Blender_Models/Brook/Brook.glb. Named clips: Idle, Attack, Block, Hit, Death, Arrow_Notch, Polka_Remise. Rebuild: python tools/trim_battle_glb.py brook",
+  },
+  {
+    id: "glb-chopper",
+    label: "Battle GLB Chopper (local)",
+    relativePath: "private-assets/glb/chopper.glb",
+    note: "Slim battle copy from Blender_Models/Chopper/Chopper.glb. Named clips: Idle, Attack, Block, Hit, Death, Cure, Im_A_Doctor. Only chopper1/copper1 meshes. Rebuild: python tools/trim_battle_glb.py chopper",
+  },
+  {
+    id: "glb-robin",
+    label: "Battle GLB Robin (local)",
+    relativePath: "private-assets/glb/robin.glb",
+    note: "Slim battle copy from Blender_Models/Robin/Robin.glb. Named clips: Idle, Attack, Block, Hit, Death, Rondo, Clutch_1..7. Rebuild: python tools/trim_battle_glb.py robin",
+  },
+  {
+    id: "glb-franky",
+    label: "Battle GLB Franky (local)",
+    relativePath: "private-assets/glb/franky.glb",
+    note: "Slim battle copy from Blender_Models/Franky/Franky.glb. Named clips: Idle, Attack, Block, Hit, Death, Radical_Beam_1/2, Strong_Right. right_fist2/right_fist_3 on all clips; weapon4 only on Radical Beam. Rebuild: python tools/trim_battle_glb.py franky",
+  },
+  {
+    id: "glb-luffy",
+    label: "Battle GLB Luffy (local)",
+    relativePath: "private-assets/glb/luffy.glb",
+    note: "Slim battle copy from Blender_Models/Luffy/Luffy.blend. Named clips: Idle, Attack, Block, Hit, Death, Bazooka, Gattling. Rebuild: python tools/_export_luffy_battle_glb.py (or trim_battle_glb.py luffy after refreshing Luffy.glb)",
+  },
 ];
 
 export function assetUrl(relativePath: string): { rootUrl: string; fileName: string } {

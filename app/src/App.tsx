@@ -14,6 +14,8 @@ export function App() {
     const host = new BattleScene(canvas);
     sceneRef.current = host;
     host.prepareBattleScene();
+    host.resize();
+    requestAnimationFrame(() => host.resize());
     setReady(true);
     setStatus("Battle ready.");
     const onResize = () => host.resize();
@@ -27,15 +29,17 @@ export function App() {
   }, []);
 
   return (
-    <div className="app battle-mode frame-wide">
-      <aside>
-        <h1>Battle</h1>
-        <p className="note">{status}</p>
-      </aside>
-      <main>
+    <div className="app battle-mode">
+      <main className="battle-stage">
         <canvas ref={canvasRef} />
-        <div className="battle-dock">
-          <BattlePanel scene={ready ? sceneRef.current : null} active={ready} onStatus={setStatus} />
+        <div className="battle-overlay">
+          <div className="battle-status">
+            <strong>Battle</strong>
+            <span className="note">{status}</span>
+          </div>
+          <div className="battle-dock">
+            <BattlePanel scene={ready ? sceneRef.current : null} active={ready} onStatus={setStatus} />
+          </div>
         </div>
       </main>
     </div>

@@ -91,8 +91,12 @@ export class UnitViewRegistry {
   setAlive(unitId: string, alive: boolean): void {
     const view = this.views.get(unitId);
     if (!view) return;
+    // Synthetic placeholders hide when KO. Skinned characters stay on the field
+    // so Death can finish and hold its last frame on the unit root.
     view.body.setEnabled(alive && view.kind === "synthetic");
-    view.root.setEnabled(alive);
+    if (view.kind === "synthetic") {
+      view.root.setEnabled(alive);
+    }
   }
 
   /** Hides the placeholder box once a real skinned character occupies the slot. */

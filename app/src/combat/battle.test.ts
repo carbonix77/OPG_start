@@ -3,7 +3,14 @@ import { meshIndexOf, previewForAsset } from "../inspector/previewConfig";
 import { chooseEnemyAction } from "./ai";
 import { BattleEngine, makeBalancedFiveVFive } from "./engine";
 import { slotsForLineup } from "../battle/arena";
-import { LINEUP_2V2_MIXED, LINEUP_2V2_STRAW_HAT, LINEUP_5V5_SYNTHETIC, lineupToSpawns } from "./lineups";
+import {
+  LINEUP_2V2_MIXED,
+  LINEUP_2V2_STRAW_HAT,
+  LINEUP_5V5_SYNTHETIC,
+  SKINNED_BATTLE_ROSTER,
+  buildRandom5v5Lineup,
+  lineupToSpawns,
+} from "./lineups";
 import {
   FIXTURE_MANIFEST,
   NAMI_MANIFEST,
@@ -297,7 +304,6 @@ describe("BattleEngine", () => {
       "basic",
       "special",
       "special-2",
-      "guard",
     ]);
     expect(engine.getState().units.find((unit) => unit.id === "nami")!.hp).toBeLessThan(80);
   });
@@ -411,13 +417,11 @@ describe("BattleEngine", () => {
       "basic",
       "special",
       "special-2",
-      "guard",
     ]);
     expect(primarySkills(ZORO_MANIFEST).map((skill) => skill.id)).toEqual([
       "basic",
       "special",
       "special-2",
-      "guard",
     ]);
     expect(skillOf(ZORO_MANIFEST, "special")?.label).toBe("Oni Giri");
     expect(skillOf(ZORO_MANIFEST, "special-2")?.label).toBe("Dragon Twister");
@@ -572,14 +576,28 @@ describe("BattleEngine", () => {
     expect(engine.getState().units.find((unit) => unit.id === "zoro")!.hp).toBe(100);
   });
 
-  it("places ten synthetic 5v5 units on unique formation slots", () => {
-    expect(LINEUP_5V5_SYNTHETIC.units).toHaveLength(10);
+  it("builds a random 5v5 with every skinned character plus dummy fillers", () => {
+    const lineup = buildRandom5v5Lineup(42);
+    expect(lineup.units).toHaveLength(10);
+    expect(lineup.units.filter((unit) => unit.team === "alpha")).toHaveLength(5);
+    expect(lineup.units.filter((unit) => unit.team === "bravo")).toHaveLength(5);
+    const skinnedIds = new Set(SKINNED_BATTLE_ROSTER.map((unit) => unit.id));
+    const present = lineup.units.filter((unit) => skinnedIds.has(unit.id));
+    expect(present).toHaveLength(SKINNED_BATTLE_ROSTER.length);
+    expect(lineup.units.filter((unit) => unit.presentation === "synthetic")).toHaveLength(
+      10 - SKINNED_BATTLE_ROSTER.length,
+    );
     expect(SYNTHETIC_MANIFEST.assetId).toBe("synthetic-placeholder");
-    const slots = slotsForLineup(LINEUP_5V5_SYNTHETIC.units);
+    const slots = slotsForLineup(lineup.units);
     expect(slots).toHaveLength(10);
     const keys = new Set(slots.map((slot) => slot.position.join(",")));
     expect(keys.size).toBe(10);
-    const engine = new BattleEngine(3, lineupToSpawns(LINEUP_5V5_SYNTHETIC));
+    const engine = new BattleEngine(3, lineupToSpawns(lineup));
     expect(engine.getState().units).toHaveLength(10);
+    // Same seed is deterministic.
+    expect(buildRandom5v5Lineup(42).units.map((unit) => `${unit.team}:${unit.id}`)).toEqual(
+      lineup.units.map((unit) => `${unit.team}:${unit.id}`),
+    );
+    expect(LINEUP_5V5_SYNTHETIC.units).toHaveLength(10);
   });
 });

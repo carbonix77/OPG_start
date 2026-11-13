@@ -78,6 +78,7 @@ export class CharacterUnitView {
   /** Owner hide indices. Presentation default hides them; Show All can re-enable. */
   private excludedIndices = new Set<number>();
   private excludedNames = new Set<string>();
+  private visibleMeshNamePrefixes: string[] = [];
   private clipMeshOverrides: PreviewConfig["clipMeshOverrides"];
   private phantomSpecs: PhantomSpec[] = [];
   private assetPath = "";
@@ -90,6 +91,7 @@ export class CharacterUnitView {
   private showAllMeshes = false;
   private clipDurationSec: Record<string, number> = {};
   private actionWatchdog: number | null = null;
+  private flashTimers: number[] = [];
   private cacheBust = "";
   private chainMotionActive = false;
   assetId = "";
@@ -131,6 +133,7 @@ export class CharacterUnitView {
     this.attachContainerHierarchy(container, this.root);
     this.excludedIndices = new Set(preview?.excludedMeshIndices ?? []);
     this.excludedNames = new Set(preview?.excludedMeshNames ?? []);
+    this.visibleMeshNamePrefixes = (preview?.visibleMeshNamePrefixes ?? []).map((p) => p.toLowerCase());
     // Named Blender body (Face/Hair/…) means leftover Noesis shells are duplicates — always hide.
     const hasNamedBody = container.meshes.some((mesh) => {
       if (!(mesh instanceof Mesh) || mesh.getTotalVertices() <= 0) return false;
@@ -280,7 +283,7 @@ export class CharacterUnitView {
     clipName: string | null,
     contactNormalized: number,
     onContact: (token: number) => void,
-    onComplete: (token: number) => void,
+    onComplete: (token: number, outcome: "ok" | "missed-contact") => void,
     options?: { companionClips?: string[]; followClips?: string[] },
   ): { token: number; note: string; mode: "clip" | "missing" } {
     this.cancelAction();
@@ -305,21 +308,14 @@ export class CharacterUnitView {
     this.contactArmed = true;
     this.startCompanionClips(companions);
     let settled = false;
+    let contactApplied = false;
     /** Multi-part skills keep root motion between clips; single clips stay recentered on the slot. */
     const chainMotion = sequence.length > 1;
     let carryWorld: Vector3 | null = null;
     this.chainMotionActive = chainMotion;
     if (chainMotion) this.stopRecenter();
 
-    const settle = (): void => {
-      if (settled || token !== this.token) return;
-      settled = true;
-      this.clearActionWatchdog();
-      this.clearObservers();
-      if (this.contactArmed) {
-        this.contactArmed = false;
-        onContact(token);
-      }
+    const restoreIdleOrVisibility = (): void => {
       this.hidePhantoms();
       if (this.chainMotionActive) {
         this.chainMotionActive = false;
@@ -334,7 +330,17 @@ export class CharacterUnitView {
       } else {
         this.restoreMeshVisibility();
       }
-      onComplete(token);
+    };
+
+    /** Never invent contact on end/timeout — only the configured impact frame may call onContact. */
+    const settle = (outcome: "ok" | "missed-contact"): void => {
+      if (settled || token !== this.token) return;
+      settled = true;
+      this.clearActionWatchdog();
+      this.clearObservers();
+      this.contactArmed = false;
+      restoreIdleOrVisibility();
+      onComplete(token, outcome);
     };
 
     const alignFollowToCarry = (): void => {
@@ -380,15 +386,16 @@ export class CharacterUnitView {
       }
       if (index === 0) {
         this.contactObserver = this.scene.onBeforeRenderObservable.add(() => {
-          if (!this.contactArmed || token !== this.token || settled) return;
+          if (!this.contactArmed || token !== this.token || settled || contactApplied) return;
           if (!chainMotion) this.applyRecenter();
           const frame = attack.animatables[0]?.masterFrame ?? attack.from;
           const normalized = Math.min(
             1,
             Math.max(0, (frame - attack.from) / Math.max(0.001, attack.to - attack.from)),
           );
-          if (normalized + 1e-4 >= contactNormalized || normalized >= 0.999) {
+          if (normalized + 1e-4 >= contactNormalized) {
             this.contactArmed = false;
+            contactApplied = true;
             onContact(token);
           }
         });
@@ -401,7 +408,7 @@ export class CharacterUnitView {
           playSequenceStep(index + 1);
           return;
         }
-        settle();
+        settle(contactApplied ? "ok" : "missed-contact");
       });
     };
 
@@ -412,7 +419,10 @@ export class CharacterUnitView {
     }, 0);
     this.clearActionWatchdog();
     // Generous pad so multi-part skills are never cut off mid-chain by a short duration estimate.
-    this.actionWatchdog = window.setTimeout(() => settle(), expectedSec * 1000 + 5000);
+    this.actionWatchdog = window.setTimeout(
+      () => settle(contactApplied ? "ok" : "missed-contact"),
+      expectedSec * 1000 + 5000,
+    );
     const followNote = sequence.length > 1 ? ` → ${sequence.slice(1).join(" → ")}` : "";
     const companionNote = companions.length ? ` + ${companions.join(",")}` : "";
     return {
@@ -444,6 +454,7 @@ export class CharacterUnitView {
     this.token += 1;
     this.clearActionWatchdog();
     this.clearObservers();
+    this.clearFlashTimers();
     this.contactArmed = false;
     this.hidePhantoms();
     for (const group of this.groups) group.stop();
@@ -466,13 +477,15 @@ export class CharacterUnitView {
       if (!material.emissiveColor) continue;
       const previous = material.emissiveColor.clone();
       material.emissiveColor = new Color3(0.45, 0.35, 0.05);
-      window.setTimeout(() => {
-        try {
-          material.emissiveColor = previous;
-        } catch {
-          /* disposed */
-        }
-      }, 180);
+      this.flashTimers.push(
+        window.setTimeout(() => {
+          try {
+            if (!this.disposed) material.emissiveColor = previous;
+          } catch {
+            /* disposed */
+          }
+        }, 180),
+      );
       break;
     }
   }
@@ -657,6 +670,10 @@ export class CharacterUnitView {
     for (const name of this.excludedNames) {
       if (nameMatches(mesh.name, name) || base === name || key === shellKey(name)) return true;
     }
+    if (this.visibleMeshNamePrefixes.length > 0) {
+      const lower = base.toLowerCase();
+      if (!this.visibleMeshNamePrefixes.some((prefix) => lower.startsWith(prefix))) return true;
+    }
     return false;
   }
 
@@ -699,6 +716,11 @@ export class CharacterUnitView {
       window.clearTimeout(this.actionWatchdog);
       this.actionWatchdog = null;
     }
+  }
+
+  private clearFlashTimers(): void {
+    for (const id of this.flashTimers) window.clearTimeout(id);
+    this.flashTimers = [];
   }
 
   private findFollow(names: string[]): TransformNode | null {

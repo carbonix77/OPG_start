@@ -66,7 +66,7 @@ export class SyntheticUnitView {
     clipName: string | null,
     contactNormalized: number,
     onContact: (token: number) => void,
-    onComplete: (token: number) => void,
+    onComplete: (token: number, outcome: "ok" | "missed-contact") => void,
     _options?: { companionClips?: string[]; followClips?: string[] },
   ): { token: number; note: string; mode: "clip" | "missing" } {
     this.cancelAction();
@@ -85,7 +85,7 @@ export class SyntheticUnitView {
     this.timers.push(
       window.setTimeout(() => {
         if (token !== this.token || this.disposed) return;
-        onComplete(token);
+        onComplete(token, "ok");
       }, totalMs),
     );
     return { token, mode: "clip", note: `Synthetic ${this.unitId} plays ${clipName} (${this.team}).` };
@@ -105,9 +105,12 @@ export class SyntheticUnitView {
     for (const mat of this.mats) {
       mat.emissiveColor = new Color3(0.6, 0.6, 0.2);
     }
-    window.setTimeout(() => {
-      for (const mat of this.mats) mat.emissiveColor = Color3.Black();
-    }, 120);
+    this.timers.push(
+      window.setTimeout(() => {
+        if (this.disposed) return;
+        for (const mat of this.mats) mat.emissiveColor = Color3.Black();
+      }, 120),
+    );
   }
 
   playHit(_hitClip: string | null, _idleClip: string | null): void {
@@ -115,7 +118,11 @@ export class SyntheticUnitView {
   }
 
   playDeath(_deathClip: string | null): void {
-    this.setEnabled(false);
+    // Stay on the field, dimmed — mirrors skinned Death hold.
+    for (const mat of this.mats) {
+      mat.diffuseColor = new Color3(0.25, 0.25, 0.28);
+      mat.emissiveColor = Color3.Black();
+    }
   }
 
   private disposeContent(): void {

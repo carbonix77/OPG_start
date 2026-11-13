@@ -27,7 +27,7 @@ export function chooseEnemyAction(engine: BattleEngine): EnemyDecision | null {
 
   const skills = primarySkills(manifest);
   const basic = skills.find((row) => row.id === "basic" || row.energyCost === 0) ?? skills[0];
-  const specials = skills.filter((row) => row.id !== "basic" && row.id !== "guard");
+  const specials = skills.filter((row) => row.id !== "basic");
 
   const targets = state.units
     .filter((unit) => unit.alive && unit.team === "alpha")

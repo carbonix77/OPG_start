@@ -26,39 +26,64 @@ button:disabled { opacity: 0.4; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
 td, th { border-bottom: 1px solid #333; text-align: left; padding: 2px 4px; vertical-align: top; }
 
-/* Battle: thin mode column + canvas/HUD stacked in main (commands never under fold of canvas alone). */
+/* Battle: full-viewport canvas with HUD overlaid at the bottom. */
 .app.battle-mode {
-  grid-template-columns: 150px minmax(0, 1fr);
-  grid-template-rows: 1fr;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
 }
-.app.battle-mode main {
-  grid-template-rows: minmax(0, 1fr) auto;
-  place-items: stretch;
-  background: #141518;
-  min-height: 0;
-}
+.app.battle-mode .facts,
 .app.battle-mode aside {
-  max-height: none;
-  overflow: auto;
-  padding: 10px;
-  border-right: 1px solid #333;
+  display: none;
 }
-.app.battle-mode .facts { display: none; }
-.app.battle-mode.frame-wide canvas,
+.battle-stage {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: #141518;
+}
 .app.battle-mode canvas {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   max-height: none;
   aspect-ratio: auto;
-  object-fit: contain;
+  display: block;
+}
+.battle-overlay {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px 12px;
+  pointer-events: none;
+  background: linear-gradient(to top, rgba(20, 21, 24, 0.92) 0%, rgba(20, 21, 24, 0.72) 55%, rgba(20, 21, 24, 0) 100%);
+}
+.battle-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+  pointer-events: none;
+}
+.battle-status .note {
+  margin: 0;
 }
 .battle-dock {
-  flex-shrink: 0;
-  background: #24262b;
-  border-top: 1px solid #333;
-  padding: 8px 10px 10px;
-  max-height: min(42vh, 360px);
+  pointer-events: auto;
+  max-height: min(34vh, 320px);
   overflow: auto;
+  background: rgba(36, 38, 43, 0.88);
+  border: 1px solid #3a3d44;
+  border-radius: 8px;
+  padding: 8px 10px 10px;
 }
 .battle-panel { display: grid; gap: 6px; }
 .battle-hud { display: grid; gap: 6px; }
@@ -106,8 +131,7 @@ td, th { border-bottom: 1px solid #333; text-align: left; padding: 2px 4px; vert
 .battle-log { list-style: none; padding: 0; margin: 0; max-height: 100px; overflow: auto; color: #b7b3ac; }
 .battle-log li { border-bottom: 1px solid #333; padding: 3px 0; font-size: 11px; }
 @media (max-width: 900px) {
-  .app.battle-mode { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
-  .app.battle-mode aside { border-right: none; border-bottom: 1px solid #333; max-height: 72px; }
+  .battle-dock { max-height: min(40vh, 360px); }
   .battle-hp-compact { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 800px) {

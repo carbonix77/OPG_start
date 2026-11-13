@@ -3,6 +3,7 @@ import {
   BATTLE_LINEUPS,
   BattleEngine,
   assetIdForUnit,
+  buildRandom5v5Lineup,
   chooseEnemyAction,
   lineupById,
   lineupToSpawns,
@@ -63,7 +64,7 @@ export function BattlePanel(props: {
   onStatus: (text: string) => void;
 }) {
   const [lineupId, setLineupId] = useState(BATTLE_LINEUPS[0]!.id);
-  const lineup = useMemo(() => lineupById(lineupId), [lineupId]);
+  const [lineup, setLineup] = useState<LineupDefinition>(() => lineupById(BATTLE_LINEUPS[0]!.id));
   const [engine, setEngine] = useState(() => new BattleEngine(SEED, lineupToSpawns(lineup)));
   const [state, setState] = useState<BattleState>(() => engine.getState());
   const [busy, setBusy] = useState(false);
@@ -95,6 +96,7 @@ export function BattlePanel(props: {
 
   const slots = useMemo(() => slotsForLineup(lineup.units), [lineup]);
   const isSynthetic = lineup.units.every((unit) => unit.presentation === "synthetic");
+  const isWideField = lineup.units.length > 4;
 
   useEffect(() => {
     mounted.current = true;
@@ -124,7 +126,7 @@ export function BattlePanel(props: {
     const scene = props.scene;
     scene.prepareBattleScene();
     scene.engine.setSize(1280, 720, true);
-    scene.camera.radius = isSynthetic ? 620 : 440;
+    scene.camera.radius = isWideField || isSynthetic ? 620 : 440;
     scene.camera.alpha = 0.4;
     scene.camera.beta = 0.98;
     const arena = new BattleArena(scene.scene);
@@ -218,7 +220,7 @@ export function BattlePanel(props: {
       if (markersRef.current === markers) markersRef.current = null;
       setReady(false);
     };
-  }, [props.active, props.scene, slots, lineup, reloadToken, isSynthetic]);
+  }, [props.active, props.scene, slots, lineup, reloadToken, isSynthetic, isWideField]);
 
   // If bravo wins initiative after load/lineup switch, start AI so the loop is not frozen.
   useEffect(() => {
@@ -325,9 +327,21 @@ export function BattlePanel(props: {
         }
         refresh(contact);
       },
-      (token) => {
+      (token, outcome) => {
         if (!mounted.current || session !== sessionRef.current) return;
         if (liveAction.current?.presentToken !== token || liveAction.current.engineId !== engineId) return;
+        if (outcome === "missed-contact") {
+          const isEnemy = unitState?.team === "bravo";
+          const reason = `Unit ${unitId} finished ${skill.clipId ?? skillId} without contact.`;
+          const events = isEnemy
+            ? eng.forfeitPendingAction(reason, engineId)
+            : eng.abortAction(reason, engineId);
+          liveAction.current = null;
+          refresh(events);
+          props.onStatus(reason);
+          onDone(isEnemy ? "forfeit" : "abort");
+          return;
+        }
         refresh(eng.finishAction(engineId));
         liveAction.current = null;
         onDone("ok");
@@ -421,9 +435,13 @@ export function BattlePanel(props: {
     sessionRef.current += 1;
     liveAction.current = null;
     for (const unit of charactersRef.current.values()) unit.cancelAction();
-    const nextLineup = lineupById(nextId);
+    const nextLineup =
+      nextId === "synth-5v5"
+        ? buildRandom5v5Lineup((Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0)
+        : lineupById(nextId);
     const nextEngine = new BattleEngine(SEED, lineupToSpawns(nextLineup));
     setLineupId(nextId);
+    setLineup(nextLineup);
     setEngine(nextEngine);
     setState(nextEngine.getState());
     setLog([]);
@@ -431,6 +449,7 @@ export function BattlePanel(props: {
     setLoadError("");
     setTargetId(defaultEnemyId(nextLineup));
     setReady(false);
+    setReloadToken((token) => token + 1);
     props.onStatus(`Lineup → ${nextLineup.label}`);
   };
 
@@ -441,6 +460,24 @@ export function BattlePanel(props: {
     liveAction.current = null;
     aiFailRef.current.clear();
     for (const unit of charactersRef.current.values()) unit.cancelAction();
+
+    // 5v5 reshuffles the full roster + dummies on reset.
+    if (lineupId === "synth-5v5") {
+      const nextLineup = buildRandom5v5Lineup((Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0);
+      const nextEngine = new BattleEngine(SEED, lineupToSpawns(nextLineup));
+      setLineup(nextLineup);
+      setEngine(nextEngine);
+      setState(nextEngine.getState());
+      setLog([]);
+      setBenchNote("");
+      setLoadError("");
+      setTargetId(defaultEnemyId(nextLineup));
+      setReady(false);
+      setReloadToken((token) => token + 1);
+      props.onStatus("Battle reset. New random 5v5 roster.");
+      return;
+    }
+
     engine.reset(SEED);
     setLog([]);
     setBenchNote("");
@@ -488,7 +525,7 @@ export function BattlePanel(props: {
     <div className="battle-panel">
       <div className="battle-hud">
         <div className="battle-hud-top">
-          <strong>{isSynthetic ? "5v5 synth" : "2v2"}</strong>
+          <strong>{isWideField ? "5v5" : "2v2"}</strong>
           <label className="battle-lineup">
             Lineup
             <select value={lineupId} disabled={busy} onChange={(event) => applyLineup(event.target.value)}>
@@ -542,12 +579,7 @@ export function BattlePanel(props: {
                   ? engine.canAct(playerActor, skill.id, target)
                   : { ok: false, reason: "Waiting for ally turn" };
               const can = ready && !busy && !loadError && state.phase !== "ended" && check.ok;
-              const cost =
-                skill.id === "guard"
-                  ? ` (−${skill.energyCost} EN, ×½)`
-                  : skill.energyCost > 0
-                    ? ` (−${skill.energyCost})`
-                    : " (+1 EN)";
+              const cost = skill.energyCost > 0 ? ` (−${skill.energyCost})` : " (+1 EN)";
               return (
                 <button
                   key={skill.id}

@@ -70,6 +70,7 @@ export const ZORO_MANIFEST: CharacterManifest = {
       recovery: 0.9,
       clipId: "Onigiri",
       confidence: "named",
+      // animation-testing balance: specials cost 1 EN so they fire often while inspecting clips
       energyCost: 1,
       energyGain: 0,
     }),
@@ -82,6 +83,7 @@ export const ZORO_MANIFEST: CharacterManifest = {
       recovery: 0.9,
       clipId: "Dragon_Twister",
       confidence: "named",
+      // animation-testing balance
       energyCost: 1,
       energyGain: 0,
     }),
@@ -96,6 +98,7 @@ export const ZORO_MANIFEST: CharacterManifest = {
       clipId: "Asura_Central",
       companionClips: ["Asura_Left", "Asura_right"],
       confidence: "named",
+      // animation-testing balance
       energyCost: 1,
       energyGain: 0,
     }),
@@ -193,7 +196,7 @@ export const SYNTHETIC_MANIFEST: CharacterManifest = {
   skills: [
     skill({
       id: "basic",
-      label: "Basic",
+      label: "Basic Attack",
       damage: 8,
       startup: 0.1,
       contact: 0.4,
@@ -289,7 +292,7 @@ export const NAMI_MANIFEST: CharacterManifest = {
   skills: [
     skill({
       id: "basic",
-      label: "Staff Strike",
+      label: "Basic Attack",
       damage: 12,
       startup: 0.12,
       contact: 0.35,
@@ -342,7 +345,7 @@ export const USOPP_MANIFEST: CharacterManifest = {
   skills: [
     skill({
       id: "basic",
-      label: "Lead Star",
+      label: "Basic Attack",
       damage: 11,
       startup: 0.12,
       contact: 0.35,
@@ -380,6 +383,326 @@ export const USOPP_MANIFEST: CharacterManifest = {
   ],
 };
 
+export const ACE_MANIFEST: CharacterManifest = {
+  id: "ace-roster",
+  label: "Ace roster",
+  maxHp: 95,
+  speed: 14,
+  /** Slim private-assets/glb/ace.glb named battle clips. */
+  assetId: "glb-ace",
+  idleClip: "Idle",
+  hitClip: "Hit",
+  deathClip: "Death",
+  startEnergy: 1,
+  maxEnergy: 5,
+  skills: [
+    skill({
+      id: "basic",
+      label: "Basic Attack",
+      damage: 14,
+      startup: 0.12,
+      contact: 0.35,
+      recovery: 0.85,
+      clipId: "Attack",
+      confidence: "named",
+      energyCost: 0,
+      energyGain: 1,
+    }),
+    skill({
+      id: "special",
+      label: "Fire Fist",
+      damage: 28,
+      startup: 0.1,
+      contact: 0.4,
+      recovery: 0.95,
+      clipId: "Fire_Fist",
+      confidence: "named",
+      energyCost: 1,
+      energyGain: 0,
+    }),
+    skill({
+      id: "special-2",
+      label: "Flame Emperor",
+      damage: 32,
+      startup: 0.12,
+      contact: 0.4,
+      recovery: 1.0,
+      clipId: "Flame_Emperor",
+      confidence: "named",
+      energyCost: 1,
+      energyGain: 0,
+    }),
+    guardSkill("Block"),
+  ],
+};
+
+export const BROOK_MANIFEST: CharacterManifest = {
+  id: "brook-roster",
+  label: "Brook roster",
+  maxHp: 85,
+  speed: 13,
+  /** Slim private-assets/glb/brook.glb named battle clips. */
+  assetId: "glb-brook",
+  idleClip: "Idle",
+  hitClip: "Hit",
+  deathClip: "Death",
+  startEnergy: 1,
+  maxEnergy: 5,
+  skills: [
+    skill({
+      id: "basic",
+      label: "Basic Attack",
+      damage: 13,
+      startup: 0.12,
+      contact: 0.35,
+      recovery: 0.85,
+      clipId: "Attack",
+      confidence: "named",
+      energyCost: 0,
+      energyGain: 1,
+    }),
+    skill({
+      id: "special",
+      label: "Arrow Notch Slash",
+      damage: 26,
+      startup: 0.1,
+      contact: 0.4,
+      recovery: 0.95,
+      clipId: "Arrow_Notch",
+      confidence: "named",
+      energyCost: 1,
+      energyGain: 0,
+    }),
+    skill({
+      id: "special-2",
+      label: "Polka Remise",
+      damage: 24,
+      startup: 0.12,
+      contact: 0.4,
+      recovery: 0.95,
+      clipId: "Polka_Remise",
+      confidence: "named",
+      energyCost: 1,
+      energyGain: 0,
+    }),
+    guardSkill("Block"),
+  ],
+};
+
+export const CHOPPER_MANIFEST: CharacterManifest = {
+  id: "chopper-roster",
+  label: "Chopper roster",
+  maxHp: 90,
+  speed: 12,
+  /** Slim private-assets/glb/chopper.glb named battle clips. */
+  assetId: "glb-chopper",
+  idleClip: "Idle",
+  hitClip: "Hit",
+  deathClip: "Death",
+  startEnergy: 1,
+  maxEnergy: 5,
+  skills: [
+    skill({
+      id: "basic",
+      label: "Basic Attack",
+      damage: 12,
+      startup: 0.12,
+      contact: 0.35,
+      recovery: 0.85,
+      clipId: "Attack",
+      confidence: "named",
+      energyCost: 0,
+      energyGain: 1,
+    }),
+    skill({
+      id: "special",
+      label: "Cure",
+      damage: 20,
+      startup: 0.1,
+      contact: 0.4,
+      recovery: 0.9,
+      clipId: "Cure",
+      confidence: "named",
+      energyCost: 1,
+      energyGain: 0,
+    }),
+    skill({
+      id: "special-2",
+      label: "I'm a Doctor",
+      damage: 22,
+      startup: 0.12,
+      contact: 0.4,
+      recovery: 0.95,
+      clipId: "Im_A_Doctor",
+      confidence: "named",
+      energyCost: 1,
+      energyGain: 0,
+    }),
+    guardSkill("Block"),
+  ],
+};
+
+export const ROBIN_MANIFEST: CharacterManifest = {
+  id: "robin-roster",
+  label: "Robin roster",
+  maxHp: 85,
+  speed: 11,
+  /** Slim private-assets/glb/robin.glb named battle clips. */
+  assetId: "glb-robin",
+  idleClip: "Idle",
+  hitClip: "Hit",
+  deathClip: "Death",
+  startEnergy: 1,
+  maxEnergy: 5,
+  skills: [
+    skill({
+      id: "basic",
+      label: "Basic Attack",
+      damage: 12,
+      startup: 0.12,
+      contact: 0.35,
+      recovery: 0.85,
+      clipId: "Attack",
+      confidence: "named",
+      energyCost: 0,
+      energyGain: 1,
+    }),
+    skill({
+      id: "special",
+      label: "Clutch",
+      damage: 28,
+      startup: 0.1,
+      contact: 0.4,
+      recovery: 1.0,
+      clipId: "Clutch_1",
+      followClips: ["Clutch_2", "Clutch_3", "Clutch_4", "Clutch_5", "Clutch_6", "Clutch_7"],
+      confidence: "named",
+      energyCost: 1,
+      energyGain: 0,
+    }),
+    skill({
+      id: "special-2",
+      label: "Rondo",
+      damage: 22,
+      startup: 0.12,
+      contact: 0.4,
+      recovery: 0.9,
+      clipId: "Rondo",
+      confidence: "named",
+      energyCost: 1,
+      energyGain: 0,
+    }),
+    guardSkill("Block"),
+  ],
+};
+
+export const FRANKY_MANIFEST: CharacterManifest = {
+  id: "franky-roster",
+  label: "Franky roster",
+  maxHp: 110,
+  speed: 10,
+  /** Slim private-assets/glb/franky.glb named battle clips. */
+  assetId: "glb-franky",
+  idleClip: "Idle",
+  hitClip: "Hit",
+  deathClip: "Death",
+  startEnergy: 1,
+  maxEnergy: 5,
+  skills: [
+    skill({
+      id: "basic",
+      label: "Basic Attack",
+      damage: 15,
+      startup: 0.12,
+      contact: 0.35,
+      recovery: 0.9,
+      clipId: "Attack",
+      confidence: "named",
+      energyCost: 0,
+      energyGain: 1,
+    }),
+    skill({
+      id: "special",
+      label: "Radical Beam",
+      damage: 30,
+      startup: 0.1,
+      contact: 0.4,
+      recovery: 1.0,
+      clipId: "Radical_Beam_1",
+      followClips: ["Radical_Beam_2"],
+      confidence: "named",
+      energyCost: 1,
+      energyGain: 0,
+    }),
+    skill({
+      id: "special-2",
+      label: "Strong Right",
+      damage: 26,
+      startup: 0.12,
+      contact: 0.4,
+      recovery: 0.95,
+      clipId: "Strong_Right",
+      confidence: "named",
+      energyCost: 1,
+      energyGain: 0,
+    }),
+    guardSkill("Block"),
+  ],
+};
+
+export const LUFFY_MANIFEST: CharacterManifest = {
+  id: "luffy-roster",
+  label: "Luffy roster",
+  maxHp: 100,
+  speed: 13,
+  /** Slim private-assets/glb/luffy.glb named battle clips. */
+  assetId: "glb-luffy",
+  idleClip: "Idle",
+  hitClip: "Hit",
+  deathClip: "Death",
+  startEnergy: 1,
+  maxEnergy: 5,
+  skills: [
+    skill({
+      id: "basic",
+      label: "Basic Attack",
+      damage: 14,
+      startup: 0.12,
+      contact: 0.35,
+      recovery: 0.85,
+      clipId: "Attack",
+      confidence: "named",
+      energyCost: 0,
+      energyGain: 1,
+    }),
+    skill({
+      id: "special",
+      label: "Bazooka",
+      damage: 30,
+      startup: 0.1,
+      contact: 0.45,
+      recovery: 1.0,
+      clipId: "Bazooka",
+      confidence: "named",
+      energyCost: 1,
+      energyGain: 0,
+    }),
+    skill({
+      id: "special-2",
+      label: "Gattling",
+      damage: 26,
+      startup: 0.1,
+      contact: 0.35,
+      recovery: 1.0,
+      clipId: "Gattling",
+      confidence: "named",
+      energyCost: 1,
+      energyGain: 0,
+    }),
+    guardSkill("Block"),
+  ],
+};
+
 export const MANIFEST_BY_ID: Record<string, CharacterManifest> = {
   [ZORO_MANIFEST.id]: ZORO_MANIFEST,
   [DUMMY_MANIFEST.id]: DUMMY_MANIFEST,
@@ -388,6 +711,12 @@ export const MANIFEST_BY_ID: Record<string, CharacterManifest> = {
   [SANJI_MANIFEST.id]: SANJI_MANIFEST,
   [NAMI_MANIFEST.id]: NAMI_MANIFEST,
   [USOPP_MANIFEST.id]: USOPP_MANIFEST,
+  [ACE_MANIFEST.id]: ACE_MANIFEST,
+  [BROOK_MANIFEST.id]: BROOK_MANIFEST,
+  [CHOPPER_MANIFEST.id]: CHOPPER_MANIFEST,
+  [ROBIN_MANIFEST.id]: ROBIN_MANIFEST,
+  [FRANKY_MANIFEST.id]: FRANKY_MANIFEST,
+  [LUFFY_MANIFEST.id]: LUFFY_MANIFEST,
 };
 
 export function manifestOf(id: string): CharacterManifest | null {
@@ -398,11 +727,10 @@ export function skillOf(manifest: CharacterManifest, skillId: string) {
   return manifest.skills.find((row) => row.id === skillId) ?? null;
 }
 
-/** Compact command set: Basic, Special(s), Guard. Asura stays on the manifest but is hidden from battle UI for now. */
+/** Compact command set: Basic + Special(s). Guard and Asura stay on manifests but are omitted from battle UI. */
 export function primarySkills(manifest: CharacterManifest): SkillDef[] {
   const basic = skillOf(manifest, "basic") ?? skillOf(manifest, "action-a") ?? skillOf(manifest, "dummy-poke");
   const special = skillOf(manifest, "special");
   const special2 = skillOf(manifest, "special-2");
-  const guard = skillOf(manifest, "guard");
-  return [basic, special, special2, guard].filter((row): row is SkillDef => !!row);
+  return [basic, special, special2].filter((row): row is SkillDef => !!row);
 }
