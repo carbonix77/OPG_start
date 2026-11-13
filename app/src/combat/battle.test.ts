@@ -202,8 +202,22 @@ describe("BattleEngine", () => {
     const enemyA = engine.getState().units.find((unit) => unit.id === "enemy-a");
     const enemyB = engine.getState().units.find((unit) => unit.id === "enemy-b");
     expect(enemyA && enemyA.hp < enemyA.maxHp).toBe(true);
-    expect(SANJI_MANIFEST.idleClip).toBe("Sanji_0000");
-    expect(SANJI_MANIFEST.skills[0]?.clipId).toBe("Sanji_0500");
+    expect(SANJI_MANIFEST.idleClip).toBe("Idle");
+    expect(SANJI_MANIFEST.skills[0]?.clipId).toBe("Attack");
+    expect(skillOf(SANJI_MANIFEST, "special")?.followClips).toEqual([
+      "Diable_Jambe_2",
+      "Diable_Jambe_3",
+      "Diable_Jambe_4",
+    ]);
+    expect(skillOf(SANJI_MANIFEST, "special-2")?.followClips).toEqual([
+      "Party_Table_Kick_Course_2",
+      "Party_Table_Kick_Course_3",
+    ]);
+    expect(SANJI_MANIFEST.assetId).toBe("glb-sanji");
+    expect(previewForAsset("glb-sanji")?.idleClip).toBe("Idle");
+    expect(previewForAsset("glb-sanji")?.excludedMeshNames?.some((n) => n.startsWith("model_0_submesh_"))).toBe(
+      true,
+    );
     expect(enemyB?.hp === 80 || (enemyB && enemyB.hp < enemyB.maxHp)).toBe(true);
   });
 
@@ -267,8 +281,24 @@ describe("BattleEngine", () => {
     engine.resolveFully("nami", "basic", "zoro");
     expect(engine.currentActorId()).toBe("usopp");
     engine.resolveFully("usopp", "basic", "sanji");
-    expect(NAMI_MANIFEST.idleClip).toBe("Nami_0000");
-    expect(USOPP_MANIFEST.skills[0]?.clipId).toBe("Usopp_0500");
+    expect(NAMI_MANIFEST.idleClip).toBe("Idle");
+    expect(NAMI_MANIFEST.assetId).toBe("glb-nami");
+    expect(skillOf(NAMI_MANIFEST, "basic")?.clipId).toBe("Attack");
+    expect(skillOf(NAMI_MANIFEST, "special")?.clipId).toBe("Thunderbolt_Tempo");
+    expect(skillOf(NAMI_MANIFEST, "special-2")?.clipId).toBe("Cyclone_Tempo");
+    expect(previewForAsset("glb-nami")?.idleClip).toBe("Idle");
+    expect(USOPP_MANIFEST.idleClip).toBe("Idle");
+    expect(USOPP_MANIFEST.assetId).toBe("glb-usopp");
+    expect(skillOf(USOPP_MANIFEST, "basic")?.clipId).toBe("Attack");
+    expect(skillOf(USOPP_MANIFEST, "special")?.clipId).toBe("Fire_Star");
+    expect(skillOf(USOPP_MANIFEST, "special-2")?.clipId).toBe("Sunflower_Star");
+    expect(previewForAsset("glb-usopp")?.idleClip).toBe("Idle");
+    expect(primarySkills(USOPP_MANIFEST).map((skill) => skill.id)).toEqual([
+      "basic",
+      "special",
+      "special-2",
+      "guard",
+    ]);
     expect(engine.getState().units.find((unit) => unit.id === "nami")!.hp).toBeLessThan(80);
   });
 
@@ -324,9 +354,15 @@ describe("BattleEngine", () => {
     const engine = duo(11, 200);
     const zoro = () => engine.getState().units.find((unit) => unit.id === "zoro")!;
     expect(zoro().energy).toBe(1);
-    expect(engine.canAct("zoro", "special", "dummy").ok).toBe(false);
+    expect(engine.canAct("zoro", "special", "dummy").ok).toBe(true);
+    const before = zoro().energy;
+    engine.beginAction("zoro", "special", "dummy");
+    expect(zoro().energy).toBe(before - 1);
+    const actionId = engine.currentActionId()!;
+    engine.abortAction("test-refund", actionId);
+    expect(zoro().energy).toBe(before);
+    // Basic still gains energy.
     engine.resolveFully("zoro", "basic", "dummy");
-    // Dummy may act; keep burning until Zoro again if needed.
     let guard = 0;
     while (engine.currentActorId() !== "zoro" && engine.getState().phase !== "ended" && guard < 8) {
       guard += 1;
@@ -334,23 +370,27 @@ describe("BattleEngine", () => {
       if (!actorId) break;
       engine.resolveFully(actorId, "dummy-poke", "zoro");
     }
-    expect(engine.currentActorId()).toBe("zoro");
     expect(zoro().energy).toBeGreaterThanOrEqual(2);
-    engine.resolveFully("zoro", "basic", "dummy");
-    while (engine.currentActorId() !== "zoro" && engine.getState().phase !== "ended" && guard < 16) {
-      guard += 1;
-      const actorId = engine.currentActorId();
-      if (!actorId) break;
-      engine.resolveFully(actorId, "dummy-poke", "zoro");
-    }
-    expect(zoro().energy).toBeGreaterThanOrEqual(3);
-    expect(engine.canAct("zoro", "special", "dummy").ok).toBe(true);
-    const before = zoro().energy;
-    engine.beginAction("zoro", "special", "dummy");
-    expect(zoro().energy).toBe(before - 3);
-    const actionId = engine.currentActionId()!;
-    engine.abortAction("test-refund", actionId);
-    expect(zoro().energy).toBe(before);
+  });
+
+  it("CPU uses a special when energy allows, else basic", () => {
+    const withEnergy = new BattleEngine(9, [
+      { id: "zoro", manifestId: ZORO_MANIFEST.id, team: "alpha", speed: 5 },
+      { id: "nami", manifestId: NAMI_MANIFEST.id, team: "bravo", speed: 30, startEnergy: 1 },
+    ]);
+    expect(withEnergy.currentActorId()).toBe("nami");
+    const specialPick = chooseEnemyAction(withEnergy);
+    expect(specialPick?.actorId).toBe("nami");
+    expect(specialPick?.skillId === "special" || specialPick?.skillId === "special-2").toBe(true);
+    expect(specialPick?.reason.startsWith("special-available")).toBe(true);
+
+    const broke = new BattleEngine(9, [
+      { id: "zoro", manifestId: ZORO_MANIFEST.id, team: "alpha", speed: 5 },
+      { id: "nami", manifestId: NAMI_MANIFEST.id, team: "bravo", speed: 30, startEnergy: 0 },
+    ]);
+    const basicPick = chooseEnemyAction(broke);
+    expect(basicPick?.skillId).toBe("basic");
+    expect(basicPick?.reason.startsWith("basic")).toBe(true);
   });
 
   it("replays seeded enemy decisions for Nami and Usopp", () => {
@@ -365,8 +405,52 @@ describe("BattleEngine", () => {
     const b = chooseEnemyAction(engine);
     expect(a).toEqual(b);
     expect(a?.actorId).toBe("nami");
+    expect(a?.skillId === "special" || a?.skillId === "special-2").toBe(true);
     expect(a?.targetId === "zoro" || a?.targetId === "sanji").toBe(true);
-    expect(primarySkills(NAMI_MANIFEST).map((skill) => skill.id)).toEqual(["basic", "special", "guard"]);
+    expect(primarySkills(NAMI_MANIFEST).map((skill) => skill.id)).toEqual([
+      "basic",
+      "special",
+      "special-2",
+      "guard",
+    ]);
+    expect(primarySkills(ZORO_MANIFEST).map((skill) => skill.id)).toEqual([
+      "basic",
+      "special",
+      "special-2",
+      "guard",
+    ]);
+    expect(skillOf(ZORO_MANIFEST, "special")?.label).toBe("Oni Giri");
+    expect(skillOf(ZORO_MANIFEST, "special-2")?.label).toBe("Dragon Twister");
+    expect(ZORO_MANIFEST.idleClip).toBe("Idle");
+    expect(skillOf(ZORO_MANIFEST, "basic")?.clipId).toBe("Attack");
+    expect(skillOf(ZORO_MANIFEST, "special")?.clipId).toBe("Onigiri");
+    expect(skillOf(ZORO_MANIFEST, "special-2")?.clipId).toBe("Dragon_Twister");
+    expect(skillOf(ZORO_MANIFEST, "asura")?.companionClips).toEqual(["Asura_Left", "Asura_right"]);
+    expect(skillOf(ZORO_MANIFEST, "asura")).toBeTruthy();
+    expect(previewForAsset("glb-zoro")?.phantoms).toEqual([
+      { clip: "Asura_Left", offset: [0, 0, 0] },
+      { clip: "Asura_right", offset: [0, 0, 0] },
+    ]);
+    expect(skillOf(ZORO_MANIFEST, "guard")?.clipId).toBe("Block");
+    expect(ZORO_MANIFEST.deathClip).toBe("Death");
+    expect(ZORO_MANIFEST.hitClip).toBe("Hit");
+    expect(previewForAsset("glb-zoro")?.idleClip).toBe("Idle");
+    expect(previewForAsset("glb-zoro")?.clipMeshOverrides?.Idle).toEqual({
+      hide: ["Sword_Mouth"],
+      show: ["Sword_Mouth_Holder"],
+    });
+    expect(previewForAsset("glb-zoro")?.clipMeshOverrides?.Onigiri).toEqual({
+      hide: ["Sword_Mouth_Holder"],
+      show: ["Sword_Mouth"],
+    });
+    expect(previewForAsset("glb-zoro")?.clipMeshOverrides?.Attack).toEqual({
+      hide: ["Sword_Mouth"],
+      show: ["Sword_Mouth_Holder"],
+    });
+    expect(previewForAsset("glb-zoro")?.clipMeshOverrides?.Dragon_Twister).toEqual({
+      hide: ["Sword_Mouth_Holder"],
+      show: ["Sword_Mouth"],
+    });
     engine.resolveFully(a!.actorId, a!.skillId, a!.targetId);
     expect(engine.currentActorId()).toBe("usopp");
     const usopp = chooseEnemyAction(engine);
@@ -395,13 +479,16 @@ describe("BattleEngine", () => {
     expect(engine.getState().units.find((unit) => unit.id === "zoro")!.guardCharges).toBe(0);
   });
 
-  it("blocks specials at energy 0/2 and allows at 3/5", () => {
+  it("blocks specials at energy 0 and allows at 1+", () => {
     const engine = duo(13, 200);
     const zoro = () => engine.getState().units.find((unit) => unit.id === "zoro")!;
-    // Force energy levels via basics / begin spend
     expect(zoro().energy).toBe(1);
-    expect(engine.canAct("zoro", "special", "dummy").ok).toBe(false);
-    engine.resolveFully("zoro", "basic", "dummy");
+    expect(engine.canAct("zoro", "special", "dummy").ok).toBe(true);
+    engine.beginAction("zoro", "special", "dummy");
+    expect(zoro().energy).toBe(0);
+    engine.abortAction("drain", engine.currentActionId()!);
+    // Refund restores; spend without refund path: resolve a special then check 0 blocks
+    engine.resolveFully("zoro", "special", "dummy");
     let guard = 0;
     while (engine.currentActorId() !== "zoro" && guard < 6) {
       guard += 1;
@@ -409,9 +496,7 @@ describe("BattleEngine", () => {
       if (!id) break;
       engine.resolveFully(id, "dummy-poke", "zoro");
     }
-    // energy should be 2 after one basic gain
-    expect(zoro().energy).toBeGreaterThanOrEqual(2);
-    if (zoro().energy < 3) {
+    if (zoro().energy < 1) {
       expect(engine.canAct("zoro", "special", "dummy").ok).toBe(false);
     }
   });

@@ -15,9 +15,9 @@ import {
   type LineupDefinition,
 } from "../combat";
 import { LOCAL_ASSETS } from "../inspector/assets";
-import type { InspectorScene } from "../inspector/InspectorScene";
 import { previewForAsset } from "../inspector/previewConfig";
 import { BattleArena, slotsForLineup } from "./arena";
+import type { BattleScene } from "./BattleScene";
 import { CharacterUnitView, measureHeapMb, type CharacterLoadResult } from "./CharacterUnitView";
 import { SyntheticUnitView } from "./SyntheticUnitView";
 import { UnitViewRegistry, type UnitViewSpec } from "./unitRegistry";
@@ -58,7 +58,7 @@ function defaultEnemyId(lineup: LineupDefinition): string {
 }
 
 export function BattlePanel(props: {
-  scene: InspectorScene | null;
+  scene: BattleScene | null;
   active: boolean;
   onStatus: (text: string) => void;
 }) {
@@ -72,10 +72,9 @@ export function BattlePanel(props: {
   const [targetId, setTargetId] = useState(() => defaultEnemyId(lineup));
   const [log, setLog] = useState<string[]>([]);
   const [loadNotes, setLoadNotes] = useState<string[]>([]);
-  const [showAllMeshes, setShowAllMeshes] = useState(false);
-  const [assetSource, setAssetSource] = useState<"noesis" | "glb">("noesis");
   const [benchNote, setBenchNote] = useState("");
   const [reloadToken, setReloadToken] = useState(0);
+  const assetSource = "glb" as const;
   const liveAction = useRef<{ engineId: number; presentToken: number; unitId: string } | null>(null);
   const mounted = useRef(true);
   const sessionRef = useRef(0);
@@ -173,9 +172,10 @@ export function BattlePanel(props: {
           charactersRef.current.set(unit.id, view);
           const result: CharacterLoadResult = await view.load(asset, preview, slot.position, {
             preferEmbeddedTextures: assetSource === "glb",
+            // Fresh fetch every page load so Blender re-exports are not stuck behind a cached GLB.
+            cacheBust: `${Date.now()}-${reloadToken}-${asset.id}`,
           });
           if (cancelled || session !== sessionRef.current) return;
-          view.setShowAllMeshes(showAllMeshes);
           const durationNote = Object.entries(result.clipDurations)
             .map(([name, sec]) => `${name}:${sec}s`)
             .join(", ");
@@ -218,13 +218,7 @@ export function BattlePanel(props: {
       if (markersRef.current === markers) markersRef.current = null;
       setReady(false);
     };
-  }, [props.active, props.scene, slots, assetSource, lineup, reloadToken, isSynthetic]);
-
-  useEffect(() => {
-    for (const unit of charactersRef.current.values()) {
-      if (unit instanceof CharacterUnitView) unit.setShowAllMeshes(showAllMeshes);
-    }
-  }, [showAllMeshes]);
+  }, [props.active, props.scene, slots, lineup, reloadToken, isSynthetic]);
 
   // If bravo wins initiative after load/lineup switch, start AI so the loop is not frozen.
   useEffect(() => {
@@ -245,7 +239,8 @@ export function BattlePanel(props: {
     setState(next);
     for (const unit of next.units) {
       markersRef.current?.setAlive(unit.id, unit.alive);
-      charactersRef.current.get(unit.id)?.setEnabled(unit.alive);
+      // Keep defeated meshes visible so Death can play; Reset re-enables everyone.
+      if (unit.alive) charactersRef.current.get(unit.id)?.setEnabled(true);
     }
     if (events.length) setLog((prev) => [...events.map(formatEvent), ...prev].slice(0, 50));
   };
@@ -291,7 +286,14 @@ export function BattlePanel(props: {
     if (policy.mode === "instant") {
       const events = [...eng.applyContact(engineId), ...eng.finishAction(engineId)];
       markersRef.current?.flash(target);
-      charactersRef.current.get(target)?.flash();
+      const targetView = charactersRef.current.get(target);
+      const targetState = eng.getState().units.find((unit) => unit.id === target);
+      const targetManifest = manifestOf(targetState?.manifestId ?? "");
+      if (targetState && !targetState.alive) {
+        targetView?.playDeath(targetManifest?.deathClip ?? null);
+      } else {
+        targetView?.playHit(targetManifest?.hitClip ?? null, targetManifest?.idleClip ?? null);
+      }
       refresh(events.filter((event) => event.type !== "blocked"));
       onDone("ok");
       return;
@@ -313,7 +315,14 @@ export function BattlePanel(props: {
         if (liveAction.current?.presentToken !== token || liveAction.current.engineId !== engineId) return;
         const contact = eng.applyContact(engineId);
         markersRef.current?.flash(target);
-        charactersRef.current.get(target)?.flash();
+        const targetView = charactersRef.current.get(target);
+        const targetState = eng.getState().units.find((unit) => unit.id === target);
+        const targetManifest = manifestOf(targetState?.manifestId ?? "");
+        if (targetState && !targetState.alive) {
+          targetView?.playDeath(targetManifest?.deathClip ?? null);
+        } else {
+          targetView?.playHit(targetManifest?.hitClip ?? null, targetManifest?.idleClip ?? null);
+        }
         refresh(contact);
       },
       (token) => {
@@ -323,6 +332,7 @@ export function BattlePanel(props: {
         liveAction.current = null;
         onDone("ok");
       },
+      { companionClips: skill.companionClips, followClips: skill.followClips },
     );
     liveAction.current = { engineId, presentToken: played.token, unitId };
     if (played.mode === "missing") {
@@ -583,29 +593,7 @@ export function BattlePanel(props: {
         {busy ? <p className="note">Action in progress.</p> : null}
       </div>
       <details className="battle-debug">
-        <summary>Developer / diagnostics</summary>
-        <p className="note">Basic +1 · Special −3 · Guard −1 (cap 1). Synthetic 5v5 is a feasibility test, not skinned GLBs.</p>
-        {!isSynthetic ? (
-          <label>
-            Asset source
-            <select
-              value={assetSource}
-              disabled={busy}
-              onChange={(event) => setAssetSource(event.target.value === "glb" ? "glb" : "noesis")}
-            >
-              <option value="noesis">Noesis glTF (default)</option>
-              <option value="glb">Blender GLB (local validation)</option>
-            </select>
-          </label>
-        ) : null}
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={showAllMeshes}
-            onChange={(event) => setShowAllMeshes(event.target.checked)}
-          />
-          Show All meshes (diagnostic)
-        </label>
+        <summary>Event log</summary>
         <div className="row">
           <button type="button" disabled={!ready || busy} onClick={() => void runHeapCycles()}>
             Heap ×5 reset
@@ -617,7 +605,6 @@ export function BattlePanel(props: {
             {note}
           </p>
         ))}
-        <h2>Event log</h2>
         <ul className="battle-log">
           {log.map((line, index) => (
             <li key={`${index}-${line}`}>{line}</li>

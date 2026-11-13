@@ -67,6 +67,7 @@ export class SyntheticUnitView {
     contactNormalized: number,
     onContact: (token: number) => void,
     onComplete: (token: number) => void,
+    _options?: { companionClips?: string[]; followClips?: string[] },
   ): { token: number; note: string; mode: "clip" | "missing" } {
     this.cancelAction();
     const token = ++this.token;
@@ -107,6 +108,14 @@ export class SyntheticUnitView {
     window.setTimeout(() => {
       for (const mat of this.mats) mat.emissiveColor = Color3.Black();
     }, 120);
+  }
+
+  playHit(_hitClip: string | null, _idleClip: string | null): void {
+    this.flash();
+  }
+
+  playDeath(_deathClip: string | null): void {
+    this.setEnabled(false);
   }
 
   private disposeContent(): void {

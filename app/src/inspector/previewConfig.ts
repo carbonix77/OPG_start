@@ -109,6 +109,12 @@ export interface WeaponState {
   note: string;
 }
 
+/** Per-clip mesh visibility by object name (Blender GLB friendly names). */
+export interface ClipMeshOverride {
+  show?: string[];
+  hide?: string[];
+}
+
 export interface PreviewConfig {
   id: string;
   textureDir: string;
@@ -134,6 +140,12 @@ export interface PreviewConfig {
    * Mesh indices that do not belong on this model. They stay in the file and are not drawn.
    */
   excludedMeshIndices: number[];
+  /**
+   * Mesh object names hidden by default (Blender hide list). Matched as name suffix.
+   */
+  excludedMeshNames?: string[];
+  /** Temporary show/hide by mesh name while a clip plays. */
+  clipMeshOverrides?: Readonly<Record<string, ClipMeshOverride>>;
   stacks: SwordStack[];
   /** Bone groups measured for the three-sword proposal. The page does not hide them. */
   swordGroups: SwordGroup[];
@@ -448,8 +460,8 @@ export const ZORO_ROSTER_PREVIEW: PreviewConfig = {
     { id: "reaction-b", clip: "Zoro_0061", label: "Possible hit or knockback. Not confirmed.", confidence: "candidate" },
   ],
   phantoms: [
-    { clip: "Zoro_1322", offset: [160, 0, 0] },
-    { clip: "Zoro_1324", offset: [-160, 0, 0] },
+    { clip: "Zoro_1322", offset: [0, 0, 0] },
+    { clip: "Zoro_1324", offset: [0, 0, 0] },
   ],
   weaponStates: [
     {
@@ -490,6 +502,79 @@ export const ZORO_ROSTER_PREVIEW: PreviewConfig = {
   ],
 };
 
+/** private-assets/glb/zoro.glb slim named battle set (Idle/Attack/Onigiri/…). */
+export const ZORO_GLB_PREVIEW: PreviewConfig = {
+  ...ZORO_PREVIEW,
+  id: "zoro-glb",
+  idleClip: "Idle",
+  attackClip: "Attack",
+  cinematic: null,
+  asuraClip: "Asura_Central",
+  excludedMeshIndices: [],
+  excludedMeshNames: [
+    "Face2",
+    "Head_Bandana",
+    "Head_Bandana_Knot",
+    "Holder_Left_x",
+    "Left_Eye",
+    "Right_Eye",
+    "Sword_Left_Holder",
+    "Sword_Right_Holder",
+    "Sword_Right_x",
+    "model_0_submesh_1_noesis_meshnode_0001",
+    "model_0_submesh_5_noesis_meshnode_0005",
+    "model_0_submesh_9_noesis_meshnode_0009",
+    "model_0_submesh_11_noesis_meshnode_0011",
+    "model_0_submesh_14_noesis_meshnode_0014",
+    "model_0_submesh_18_noesis_meshnode_0018",
+    "model_0_submesh_19_noesis_meshnode_0019",
+    "model_0_submesh_20_noesis_meshnode_0020",
+    "model_0_submesh_26_noesis_meshnode_0026",
+    "model_0_submesh_27_noesis_meshnode_0027",
+    "model_0_submesh_29_noesis_meshnode_0029",
+    "model_0_submesh_31_noesis_meshnode_0031",
+    "model_0_submesh_35_noesis_meshnode_0035",
+    "model_0_submesh_37_noesis_meshnode_0037",
+    "model_0_submesh_38_noesis_meshnode_0038",
+    "model_0_submesh_39_noesis_meshnode_0039",
+  ],
+  clipMeshOverrides: {
+    Idle: {
+      hide: ["Sword_Mouth"],
+      show: ["Sword_Mouth_Holder"],
+    },
+    Attack: {
+      hide: ["Sword_Mouth"],
+      show: ["Sword_Mouth_Holder"],
+    },
+    Onigiri: {
+      hide: ["Sword_Mouth_Holder"],
+      show: ["Sword_Mouth"],
+    },
+    Dragon_Twister: {
+      hide: ["Sword_Mouth_Holder"],
+      show: ["Sword_Mouth"],
+    },
+  },
+  behaviors: [
+    { id: "idle", clip: "Idle", label: "Idle", confidence: "named" },
+    { id: "basic", clip: "Attack", label: "Basic Attack", confidence: "named" },
+    { id: "special", clip: "Onigiri", label: "Oni Giri", confidence: "named" },
+    { id: "special-2", clip: "Dragon_Twister", label: "Dragon Twister", confidence: "named" },
+    // Asura kept in GLB / skill def; hidden from battle primarySkills until re-enabled.
+    { id: "asura", clip: "Asura_Central", label: "Asura (central + left/right bodies)", confidence: "named" },
+    { id: "block", clip: "Block", label: "Block / Guard", confidence: "named" },
+    { id: "hit", clip: "Hit", label: "Hit reaction", confidence: "named" },
+    { id: "death", clip: "Death", label: "Death", confidence: "named" },
+  ],
+  phantoms: [
+    // Same origin as central body — Asura clones stack, they are not spaced out.
+    { clip: "Asura_Left", offset: [0, 0, 0] },
+    { clip: "Asura_right", offset: [0, 0, 0] },
+  ],
+  weaponStates: [],
+};
+
 /**
  * Sanji roster with extracted idle/basic. Texture sheets under preview/textures/sanji.
  * merge-sanji body meshes are model_0_submesh_N with no Material_N names.
@@ -526,6 +611,92 @@ export const SANJI_PREVIEW: PreviewConfig = {
   ],
 };
 
+/** private-assets/glb/sanji.glb slim named battle set. */
+export const SANJI_GLB_PREVIEW: PreviewConfig = {
+  ...SANJI_PREVIEW,
+  id: "sanji-glb",
+  idleClip: "Idle",
+  attackClip: "Attack",
+  // Embedded face/hair/skin/cloth in the GLB; do not rebind preview sheet paths.
+  textureDir: "",
+  materialSlotByMesh: null,
+  sheetByMesh: {},
+  excludedMeshIndices: [],
+  // Noesis shell duplicates (untextured T-pose) + drivers. Named body meshes stay.
+  // Include short mesh-datablock names — Babylon may name meshes after those, not node names.
+  excludedMeshNames: [
+    "driver_0",
+    "driver_1",
+    "driver_2",
+    "driver_3",
+    "driver_4",
+    "driver_5",
+    "driver_0_noesis_meshnode_0032",
+    "driver_1_noesis_meshnode_0033",
+    "driver_2_noesis_meshnode_0034",
+    "driver_3_noesis_meshnode_0035",
+    "driver_4_noesis_meshnode_0036",
+    "driver_5_noesis_meshnode_0037",
+    "model_0_submesh_0",
+    "model_0_submesh_1",
+    "model_0_submesh_4",
+    "model_0_submesh_5",
+    "model_0_submesh_6",
+    "model_0_submesh_7",
+    "model_0_submesh_10",
+    "model_0_submesh_11",
+    "model_0_submesh_12",
+    "model_0_submesh_13",
+    "model_0_submesh_14",
+    "model_0_submesh_16",
+    "model_0_submesh_24",
+    "model_0_submesh_25",
+    "model_0_submesh_27",
+    "model_0_submesh_29",
+    "model_0_submesh_30",
+    "model_0_submesh_31",
+    "model_0_submesh_0_noesis_meshnode_0000",
+    "model_0_submesh_1_noesis_meshnode_0001",
+    "model_0_submesh_4_noesis_meshnode_0004",
+    "model_0_submesh_5_noesis_meshnode_0005",
+    "model_0_submesh_6_noesis_meshnode_0006",
+    "model_0_submesh_7_noesis_meshnode_0007",
+    "model_0_submesh_10_noesis_meshnode_0010",
+    "model_0_submesh_11_noesis_meshnode_0011",
+    "model_0_submesh_12_noesis_meshnode_0012",
+    "model_0_submesh_13_noesis_meshnode_0013",
+    "model_0_submesh_14_noesis_meshnode_0014",
+    "model_0_submesh_16_noesis_meshnode_0016",
+    "model_0_submesh_24_noesis_meshnode_0024",
+    "model_0_submesh_25_noesis_meshnode_0025",
+    "model_0_submesh_27_noesis_meshnode_0027",
+    "model_0_submesh_29_noesis_meshnode_0029",
+    "model_0_submesh_30_noesis_meshnode_0030",
+    "model_0_submesh_31_noesis_meshnode_0031",
+  ],
+  behaviors: [
+    { id: "idle", clip: "Idle", label: "Idle", confidence: "named" },
+    { id: "basic", clip: "Attack", label: "Basic Attack", confidence: "named" },
+    {
+      id: "special",
+      clip: "Diable_Jambe_1",
+      label: "Diable Jambe (1→4 in order)",
+      confidence: "named",
+    },
+    {
+      id: "special-2",
+      clip: "Party_Table_Kick_Course_1",
+      label: "Party Table Kick Course (1→3 in order)",
+      confidence: "named",
+    },
+    { id: "block", clip: "Block", label: "Block / Guard", confidence: "named" },
+    { id: "hit", clip: "Hit", label: "Hit reaction", confidence: "named" },
+    { id: "death", clip: "Death", label: "Death", confidence: "named" },
+  ],
+  phantoms: [],
+  weaponStates: [],
+};
+
 /**
  * Nami roster. Noesis merge has no Material_N names; materialSlotByMesh is identity into map.json.
  * Sheet assignment is provisional (vertex-count heuristic), reversible via map.json only.
@@ -550,6 +721,61 @@ export const NAMI_PREVIEW: PreviewConfig = {
     { id: "basic", clip: "Nami_NewWorld_0500", label: "Nami_NewWorld_0500 basic candidate", confidence: "candidate" },
     { id: "special", clip: "Nami_NewWorld_1300", label: "Nami_NewWorld_1300 special candidate", confidence: "candidate" },
   ],
+};
+
+/** private-assets/glb/nami.glb slim named battle set. */
+export const NAMI_GLB_PREVIEW: PreviewConfig = {
+  ...NAMI_PREVIEW,
+  id: "nami-glb",
+  idleClip: "Idle",
+  attackClip: "Attack",
+  textureDir: "",
+  materialSlotByMesh: null,
+  sheetByMesh: {},
+  excludedMeshIndices: [],
+  excludedMeshNames: [
+    "model_0_submesh_0",
+    "model_0_submesh_1",
+    "model_0_submesh_4",
+    "model_0_submesh_5",
+    "model_0_submesh_6",
+    "model_0_submesh_7",
+    "model_0_submesh_8",
+    "model_0_submesh_9",
+    "model_0_submesh_12",
+    "model_0_submesh_13",
+    "model_0_submesh_17",
+    "model_0_submesh_19",
+    "model_0_submesh_20",
+    "model_0_submesh_22",
+    "model_0_submesh_23",
+    "model_0_submesh_0_noesis_meshnode_0000",
+    "model_0_submesh_1_noesis_meshnode_0001",
+    "model_0_submesh_4_noesis_meshnode_0004",
+    "model_0_submesh_5_noesis_meshnode_0005",
+    "model_0_submesh_6_noesis_meshnode_0006",
+    "model_0_submesh_7_noesis_meshnode_0007",
+    "model_0_submesh_8_noesis_meshnode_0008",
+    "model_0_submesh_9_noesis_meshnode_0009",
+    "model_0_submesh_12_noesis_meshnode_0012",
+    "model_0_submesh_13_noesis_meshnode_0013",
+    "model_0_submesh_17_noesis_meshnode_0017",
+    "model_0_submesh_19_noesis_meshnode_0019",
+    "model_0_submesh_20_noesis_meshnode_0020",
+    "model_0_submesh_22_noesis_meshnode_0022",
+    "model_0_submesh_23_noesis_meshnode_0023",
+  ],
+  behaviors: [
+    { id: "idle", clip: "Idle", label: "Idle", confidence: "named" },
+    { id: "basic", clip: "Attack", label: "Staff Strike", confidence: "named" },
+    { id: "special", clip: "Thunderbolt_Tempo", label: "Thunderbolt Tempo", confidence: "named" },
+    { id: "special-2", clip: "Cyclone_Tempo", label: "Cyclone Tempo", confidence: "named" },
+    { id: "block", clip: "Block", label: "Block / Guard", confidence: "named" },
+    { id: "hit", clip: "Hit", label: "Hit reaction", confidence: "named" },
+    { id: "death", clip: "Death", label: "Death", confidence: "named" },
+  ],
+  phantoms: [],
+  weaponStates: [],
 };
 
 /**
@@ -577,6 +803,87 @@ export const USOPP_PREVIEW: PreviewConfig = {
   ],
 };
 
+/** private-assets/glb/usopp.glb slim named battle set. */
+export const USOPP_GLB_PREVIEW: PreviewConfig = {
+  ...USOPP_PREVIEW,
+  id: "usopp-glb",
+  idleClip: "Idle",
+  attackClip: "Attack",
+  textureDir: "",
+  materialSlotByMesh: null,
+  sheetByMesh: {},
+  excludedMeshIndices: [],
+  excludedMeshNames: [
+    "driver_0_noesis_meshnode_0037",
+    "driver_1_noesis_meshnode_0038",
+    "driver_2_noesis_meshnode_0039",
+    "driver_3_noesis_meshnode_0040",
+    "driver_4_noesis_meshnode_0041",
+    "driver_5_noesis_meshnode_0042",
+    "model_0_submesh_0",
+    "model_0_submesh_2",
+    "model_0_submesh_4",
+    "model_0_submesh_8",
+    "model_0_submesh_9",
+    "model_0_submesh_10",
+    "model_0_submesh_11",
+    "model_0_submesh_12",
+    "model_0_submesh_13",
+    "model_0_submesh_14",
+    "model_0_submesh_16",
+    "model_0_submesh_17",
+    "model_0_submesh_18",
+    "model_0_submesh_19",
+    "model_0_submesh_20",
+    "model_0_submesh_21",
+    "model_0_submesh_22",
+    "model_0_submesh_23",
+    "model_0_submesh_25",
+    "model_0_submesh_26",
+    "model_0_submesh_27",
+    "model_0_submesh_31",
+    "model_0_submesh_33",
+    "model_0_submesh_35",
+    "model_0_submesh_36",
+    "model_0_submesh_0_noesis_meshnode_0000",
+    "model_0_submesh_2_noesis_meshnode_0002",
+    "model_0_submesh_4_noesis_meshnode_0004",
+    "model_0_submesh_8_noesis_meshnode_0008",
+    "model_0_submesh_9_noesis_meshnode_0009",
+    "model_0_submesh_10_noesis_meshnode_0010",
+    "model_0_submesh_11_noesis_meshnode_0011",
+    "model_0_submesh_12_noesis_meshnode_0012",
+    "model_0_submesh_13_noesis_meshnode_0013",
+    "model_0_submesh_14_noesis_meshnode_0014",
+    "model_0_submesh_16_noesis_meshnode_0016",
+    "model_0_submesh_17_noesis_meshnode_0017",
+    "model_0_submesh_18_noesis_meshnode_0018",
+    "model_0_submesh_19_noesis_meshnode_0019",
+    "model_0_submesh_20_noesis_meshnode_0020",
+    "model_0_submesh_21_noesis_meshnode_0021",
+    "model_0_submesh_22_noesis_meshnode_0022",
+    "model_0_submesh_23_noesis_meshnode_0023",
+    "model_0_submesh_25_noesis_meshnode_0025",
+    "model_0_submesh_26_noesis_meshnode_0026",
+    "model_0_submesh_27_noesis_meshnode_0027",
+    "model_0_submesh_31_noesis_meshnode_0031",
+    "model_0_submesh_33_noesis_meshnode_0033",
+    "model_0_submesh_35_noesis_meshnode_0035",
+    "model_0_submesh_36_noesis_meshnode_0036",
+  ],
+  behaviors: [
+    { id: "idle", clip: "Idle", label: "Idle", confidence: "named" },
+    { id: "basic", clip: "Attack", label: "Lead Star", confidence: "named" },
+    { id: "special", clip: "Fire_Star", label: "Fire Star", confidence: "named" },
+    { id: "special-2", clip: "Sunflower_Star", label: "Sunflower Star", confidence: "named" },
+    { id: "block", clip: "Block", label: "Block / Guard", confidence: "named" },
+    { id: "hit", clip: "Hit", label: "Hit reaction", confidence: "named" },
+    { id: "death", clip: "Death", label: "Death", confidence: "named" },
+  ],
+  phantoms: [],
+  weaponStates: [],
+};
+
 const PREVIEW_REGISTRY: Record<string, PreviewConfig> = {
   "noesis-present": ZORO_PREVIEW,
   "noesis-moves": ZORO_MOVES_PREVIEW,
@@ -584,11 +891,10 @@ const PREVIEW_REGISTRY: Record<string, PreviewConfig> = {
   "noesis-sanji": SANJI_PREVIEW,
   "noesis-nami": NAMI_PREVIEW,
   "noesis-usopp": USOPP_PREVIEW,
-  // Local Blender GLB copies reuse the same preview/texture/hide config as Noesis.
-  "glb-zoro": ZORO_ROSTER_PREVIEW,
-  "glb-sanji": SANJI_PREVIEW,
-  "glb-nami": NAMI_PREVIEW,
-  "glb-usopp": USOPP_PREVIEW,
+  "glb-zoro": ZORO_GLB_PREVIEW,
+  "glb-sanji": SANJI_GLB_PREVIEW,
+  "glb-nami": NAMI_GLB_PREVIEW,
+  "glb-usopp": USOPP_GLB_PREVIEW,
   fixture: FIXTURE_PREVIEW,
 };
 

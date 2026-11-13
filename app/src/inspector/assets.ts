@@ -81,27 +81,27 @@ export const LOCAL_ASSETS: LocalAsset[] = [
   },
   {
     id: "glb-zoro",
-    label: "Blender GLB Zoro (local)",
+    label: "Battle GLB Zoro (local)",
     relativePath: "private-assets/glb/zoro.glb",
-    note: "Local Blender export of merge-roster. Switchable fallback validation only; Noesis remains battle default until parity is accepted.",
+    note: "Slim battle copy from Blender_Models/Zoro.glb. Only named clips: Idle, Attack, Onigiri, Dragon_Twister, Asura_Central/Left/right, Block, Hit, Death. Rebuild: python tools/trim_battle_glb.py zoro",
   },
   {
     id: "glb-sanji",
-    label: "Blender GLB Sanji (local)",
+    label: "Battle GLB Sanji (local)",
     relativePath: "private-assets/glb/sanji.glb",
-    note: "Local Blender export of merge-sanji. Not the battle default yet.",
+    note: "Slim battle copy from Blender_Models/Sanji/Sanji.glb. Named clips: Idle, Attack, Block, Hit, Death, Diable_Jambe_1..4, Party_Table_Kick_Course_1..3. Rebuild: python tools/trim_battle_glb.py sanji",
   },
   {
     id: "glb-nami",
-    label: "Blender GLB Nami (local)",
+    label: "Battle GLB Nami (local)",
     relativePath: "private-assets/glb/nami.glb",
-    note: "Local Blender export of merge-nami. Not the battle default yet.",
+    note: "Slim battle copy from Blender_Models/Nami/Nami.glb. Named clips: Idle, Attack, Block, Hit, Death, Thunderbolt_Tempo, Cyclone_Tempo. Rebuild: python tools/trim_battle_glb.py nami",
   },
   {
     id: "glb-usopp",
-    label: "Blender GLB Usopp (local)",
+    label: "Battle GLB Usopp (local)",
     relativePath: "private-assets/glb/usopp.glb",
-    note: "Local Blender export of merge-usopp. Not the battle default yet.",
+    note: "Slim battle copy from Blender_Models/Usopp/Usopp.glb. Named clips: Idle, Attack, Block, Hit, Death, Fire_Star, Sunflower_Star. Rebuild: python tools/trim_battle_glb.py usopp",
   },
 ];
 

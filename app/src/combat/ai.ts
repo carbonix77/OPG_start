@@ -1,4 +1,3 @@
-import { createRng } from "./rng";
 import { manifestOf, primarySkills, skillOf } from "./manifests";
 import type { BattleEngine } from "./engine";
 
@@ -11,10 +10,11 @@ export interface EnemyDecision {
 
 /**
  * Deterministic bravo policy:
- * - Guard when low HP and energy allows (seeded)
- * - else Special when affordable (seeded)
+ * - Prefer any affordable offensive special from primarySkills (special / special-2) that canAct allows
  * - else Basic
  * Attack target: living alpha with lowest HP (id tie-break).
+ * Among multiple legal specials, pick highest damage (id tie-break).
+ * Asura is omitted from primarySkills until re-enabled.
  */
 export function chooseEnemyAction(engine: BattleEngine): EnemyDecision | null {
   const state = engine.getState();
@@ -27,17 +27,7 @@ export function chooseEnemyAction(engine: BattleEngine): EnemyDecision | null {
 
   const skills = primarySkills(manifest);
   const basic = skills.find((row) => row.id === "basic" || row.energyCost === 0) ?? skills[0];
-  const special = skills.find((row) => row.id === "special");
-  const guard = skills.find((row) => row.id === "guard");
-  const rng = createRng(state.seed * 1009 + state.turnIndex * 17 + actorId.length * 31);
-  const roll = rng();
-
-  if (guard && actor.energy >= guard.energyCost && actor.hp / actor.maxHp <= 0.45 && roll < 0.4) {
-    const check = engine.canAct(actorId, guard.id, actorId);
-    if (check.ok) {
-      return { actorId, skillId: guard.id, targetId: actorId, reason: `guard-low-hp (${guard.label})` };
-    }
-  }
+  const specials = skills.filter((row) => row.id !== "basic" && row.id !== "guard");
 
   const targets = state.units
     .filter((unit) => unit.alive && unit.team === "alpha")
@@ -45,21 +35,32 @@ export function chooseEnemyAction(engine: BattleEngine): EnemyDecision | null {
   const target = targets[0];
   if (!target) return null;
 
-  let skillId = basic?.id ?? "basic";
-  let reason = "basic-fallback";
-  if (special && actor.energy >= special.energyCost && roll < 0.55) {
-    skillId = special.id;
-    reason = "special-affordable";
-  } else if (basic) {
-    skillId = basic.id;
-    reason = "basic";
+  const affordable = specials
+    .filter((row) => actor.energy >= row.energyCost && engine.canAct(actorId, row.id, target.id).ok)
+    .sort((a, b) => b.damage - a.damage || a.id.localeCompare(b.id));
+  const picked = affordable[0] ?? basic;
+  if (!picked) return null;
+
+  const skillId = picked.id;
+  const reason = affordable[0]
+    ? `special-available`
+    : basic
+      ? "basic"
+      : "basic-fallback";
+
+  if (!engine.canAct(actorId, skillId, target.id).ok) {
+    if (basic && skillId !== basic.id && engine.canAct(actorId, basic.id, target.id).ok) {
+      const chosen = skillOf(manifest, basic.id);
+      return {
+        actorId,
+        skillId: basic.id,
+        targetId: target.id,
+        reason: `special-blocked-basic (${chosen?.label ?? basic.id} → ${target.id})`,
+      };
+    }
+    return null;
   }
 
-  if (!engine.canAct(actorId, skillId, target.id).ok && basic && skillId !== basic.id) {
-    skillId = basic.id;
-    reason = "special-blocked-basic";
-  }
-  if (!engine.canAct(actorId, skillId, target.id).ok) return null;
   const chosen = skillOf(manifest, skillId);
   return {
     actorId,

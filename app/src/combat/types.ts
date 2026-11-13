@@ -16,6 +16,16 @@ export interface SkillDef {
   recovery: number;
   /** Clip already in the loaded file, or null when this skill has no animation. */
   clipId: string | null;
+  /**
+   * Extra clips started with clipId on separate skinned copies (Asura left/right).
+   * Presentation only; headless resolve ignores them.
+   */
+  companionClips?: string[];
+  /**
+   * Extra clips played after clipId on the same body, in order (Sanji multi-part specials).
+   * Presentation only; headless resolve ignores them.
+   */
+  followClips?: string[];
   confidence: "provisional" | "candidate" | "named" | "synthetic";
   /** Energy spent when the action begins. */
   energyCost: number;
@@ -38,6 +48,10 @@ export interface CharacterManifest {
   /** Local asset id, or null for a synthetic fixture with no file. */
   assetId: string | null;
   idleClip: string | null;
+  /** Played when this unit takes a non-lethal hit. Null skips reaction. */
+  hitClip?: string | null;
+  /** Played when this unit is defeated. Null skips death presentation. */
+  deathClip?: string | null;
   /** Starting energy for a fresh unit. */
   startEnergy: number;
   /** Hard cap for the energy meter. */
