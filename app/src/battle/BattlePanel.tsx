@@ -18,6 +18,7 @@ import {
 import { LOCAL_ASSETS } from "../inspector/assets";
 import { previewForAsset } from "../inspector/previewConfig";
 import { BattleArena, slotsForLineup } from "./arena";
+import { actionFocusPose } from "./battleCamera";
 import type { BattleScene } from "./BattleScene";
 import { CharacterUnitView, measureHeapMb, type CharacterLoadResult } from "./CharacterUnitView";
 import { SyntheticUnitView } from "./SyntheticUnitView";
@@ -25,6 +26,11 @@ import { UnitViewRegistry, type UnitViewSpec } from "./unitRegistry";
 
 const SEED = 21;
 const MAX_AI_FAILS = 3;
+const FIVE_V_FIVE_ID = "synth-5v5";
+
+function freshFiveVFiveSeed(): number {
+  return (Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0;
+}
 
 type UnitPresenter = CharacterUnitView | SyntheticUnitView;
 
@@ -124,11 +130,8 @@ export function BattlePanel(props: {
     clearAutoTimer();
     aiFailRef.current.clear();
     const scene = props.scene;
-    scene.prepareBattleScene();
+    scene.prepareBattleScene(isWideField || isSynthetic);
     scene.engine.setSize(1280, 720, true);
-    scene.camera.radius = isWideField || isSynthetic ? 620 : 440;
-    scene.camera.alpha = 0.4;
-    scene.camera.beta = 0.98;
     const arena = new BattleArena(scene.scene);
     const markers = new UnitViewRegistry(scene.scene);
     arena.setSlots([...slots]);
@@ -142,7 +145,7 @@ export function BattlePanel(props: {
     markers.sync(markerSpecs);
     arenaRef.current = arena;
     markersRef.current = markers;
-    scene.camera.setTarget(arena.cameraTarget());
+    scene.restoreFieldCamera();
 
     const load = async () => {
       const notes: string[] = [];
@@ -308,6 +311,12 @@ export function BattlePanel(props: {
       onDone(isEnemy ? "forfeit" : "abort");
       return;
     }
+    const attackerSlot = slots.find((slot) => slot.unitId === unitId);
+    const targetSlot = slots.find((slot) => slot.unitId === target);
+    if (props.scene && attackerSlot && targetSlot) {
+      props.scene.applyActionCamera(actionFocusPose(attackerSlot.position, targetSlot.position));
+    }
+    const restoreCamera = () => props.scene?.restoreFieldCamera();
     const played = character!.playSkill(
       manifest.idleClip,
       skill.clipId!,
@@ -330,6 +339,7 @@ export function BattlePanel(props: {
       (token, outcome) => {
         if (!mounted.current || session !== sessionRef.current) return;
         if (liveAction.current?.presentToken !== token || liveAction.current.engineId !== engineId) return;
+        restoreCamera();
         if (outcome === "missed-contact") {
           const isEnemy = unitState?.team === "bravo";
           const reason = `Unit ${unitId} finished ${skill.clipId ?? skillId} without contact.`;
@@ -346,10 +356,15 @@ export function BattlePanel(props: {
         liveAction.current = null;
         onDone("ok");
       },
-      { companionClips: skill.companionClips, followClips: skill.followClips },
+      {
+        companionClips: skill.companionClips,
+        followClips: skill.followClips,
+        contactSegment: skill.contactSegment,
+      },
     );
     liveAction.current = { engineId, presentToken: played.token, unitId };
     if (played.mode === "missing") {
+      restoreCamera();
       const isEnemy = unitState?.team === "bravo";
       const events = isEnemy ? eng.forfeitPendingAction(played.note, engineId) : eng.abortAction(played.note, engineId);
       liveAction.current = null;
@@ -429,16 +444,12 @@ export function BattlePanel(props: {
     });
   };
 
-  const applyLineup = (nextId: string) => {
-    if (busy) return;
+  const mountLineup = (nextId: string, nextLineup: LineupDefinition, status: string) => {
     clearAutoTimer();
     sessionRef.current += 1;
     liveAction.current = null;
+    aiFailRef.current.clear();
     for (const unit of charactersRef.current.values()) unit.cancelAction();
-    const nextLineup =
-      nextId === "synth-5v5"
-        ? buildRandom5v5Lineup((Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0)
-        : lineupById(nextId);
     const nextEngine = new BattleEngine(SEED, lineupToSpawns(nextLineup));
     setLineupId(nextId);
     setLineup(nextLineup);
@@ -450,38 +461,39 @@ export function BattlePanel(props: {
     setTargetId(defaultEnemyId(nextLineup));
     setReady(false);
     setReloadToken((token) => token + 1);
-    props.onStatus(`Lineup → ${nextLineup.label}`);
+    props.onStatus(status);
   };
 
+  const applyLineup = (nextId: string) => {
+    if (busy) return;
+    if (nextId === FIVE_V_FIVE_ID) {
+      const seed = freshFiveVFiveSeed();
+      const nextLineup = buildRandom5v5Lineup(seed);
+      mountLineup(nextId, nextLineup, `Lineup → ${nextLineup.label} (seed ${seed})`);
+      return;
+    }
+    mountLineup(nextId, lineupById(nextId), `Lineup → ${lineupById(nextId).label}`);
+  };
+
+  /** Replay: identical 5v5 roster/sides (same seed) or engine.reset for 2v2. */
   const reset = () => {
     if (busy) return;
+    if (lineupId === FIVE_V_FIVE_ID) {
+      const seed = lineup.seed ?? freshFiveVFiveSeed();
+      const nextLineup = buildRandom5v5Lineup(seed);
+      mountLineup(FIVE_V_FIVE_ID, nextLineup, `Replay 5v5 seed ${seed}.`);
+      return;
+    }
     clearAutoTimer();
     sessionRef.current += 1;
     liveAction.current = null;
     aiFailRef.current.clear();
     for (const unit of charactersRef.current.values()) unit.cancelAction();
-
-    // 5v5 reshuffles the full roster + dummies on reset.
-    if (lineupId === "synth-5v5") {
-      const nextLineup = buildRandom5v5Lineup((Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0);
-      const nextEngine = new BattleEngine(SEED, lineupToSpawns(nextLineup));
-      setLineup(nextLineup);
-      setEngine(nextEngine);
-      setState(nextEngine.getState());
-      setLog([]);
-      setBenchNote("");
-      setLoadError("");
-      setTargetId(defaultEnemyId(nextLineup));
-      setReady(false);
-      setReloadToken((token) => token + 1);
-      props.onStatus("Battle reset. New random 5v5 roster.");
-      return;
-    }
-
     engine.reset(SEED);
     setLog([]);
     setBenchNote("");
     refresh();
+    props.scene?.restoreFieldCamera();
     for (const unit of lineup.units) {
       const manifest = manifestOf(unit.manifestId);
       charactersRef.current.get(unit.id)?.playIdle(manifest?.idleClip ?? null);
@@ -493,6 +505,13 @@ export function BattlePanel(props: {
     }
     setTargetId(defaultEnemyId(lineup));
     props.onStatus("Battle reset. Energy and HP restored.");
+  };
+
+  /** Shuffle: new 5v5 seed/roster (separate from Replay). */
+  const shuffleFiveVFive = () => {
+    if (busy || lineupId !== FIVE_V_FIVE_ID) return;
+    const seed = freshFiveVFiveSeed();
+    mountLineup(FIVE_V_FIVE_ID, buildRandom5v5Lineup(seed), `Shuffle 5v5 seed ${seed}.`);
   };
 
   const retryLoad = () => {
@@ -593,9 +612,14 @@ export function BattlePanel(props: {
                 </button>
               );
             })}
-            <button type="button" disabled={busy} onClick={reset}>
-              Reset
+            <button type="button" disabled={busy} onClick={reset} title={lineupId === FIVE_V_FIVE_ID ? "Replay identical 5v5 seed" : "Reset HP/energy"}>
+              {lineupId === FIVE_V_FIVE_ID ? "Replay" : "Reset"}
             </button>
+            {lineupId === FIVE_V_FIVE_ID ? (
+              <button type="button" disabled={busy} onClick={shuffleFiveVFive} title="New random 5v5 roster/seed">
+                Shuffle
+              </button>
+            ) : null}
           </div>
         </div>
         <div className="battle-hp battle-hp-compact" style={{ gridTemplateColumns: `repeat(${hpCols}, minmax(0, 1fr))` }}>

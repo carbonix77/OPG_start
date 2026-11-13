@@ -35,6 +35,8 @@ export interface LineupDefinition {
   id: string;
   label: string;
   units: LineupUnit[];
+  /** Present for random 5v5 so Replay can rebuild the identical roster. */
+  seed?: number;
 }
 
 const ZORO: Omit<LineupUnit, "team" | "speed" | "maxHp"> = {
@@ -178,6 +180,7 @@ export function buildRandom5v5Lineup(seed: number): LineupDefinition {
     id: FIVE_V_FIVE_ID,
     label: "Random roster 5v5",
     units,
+    seed,
   };
 }
 

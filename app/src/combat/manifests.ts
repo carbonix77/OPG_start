@@ -66,7 +66,9 @@ export const ZORO_MANIFEST: CharacterManifest = {
       label: "Oni Giri",
       damage: 32,
       startup: 0.12,
-      contact: 0.4,
+      contact: 0.55,
+      contactSegment: 0,
+      contactNote: "Calibrated P0: mid-late Onigiri slash (segment 0 @ 0.55).",
       recovery: 0.9,
       clipId: "Onigiri",
       confidence: "named",
@@ -572,7 +574,9 @@ export const ROBIN_MANIFEST: CharacterManifest = {
       label: "Clutch",
       damage: 28,
       startup: 0.1,
-      contact: 0.4,
+      contact: 0.48,
+      contactSegment: 2,
+      contactNote: "Calibrated P0: single hit on Clutch_3 (segment 2 @ 0.48), not Clutch_1 anticipation.",
       recovery: 1.0,
       clipId: "Clutch_1",
       followClips: ["Clutch_2", "Clutch_3", "Clutch_4", "Clutch_5", "Clutch_6", "Clutch_7"],
@@ -680,7 +684,9 @@ export const LUFFY_MANIFEST: CharacterManifest = {
       label: "Bazooka",
       damage: 30,
       startup: 0.1,
-      contact: 0.45,
+      contact: 0.62,
+      contactSegment: 0,
+      contactNote: "Calibrated P0: late stretch/impact of Bazooka (segment 0 @ 0.62).",
       recovery: 1.0,
       clipId: "Bazooka",
       confidence: "named",
@@ -727,7 +733,12 @@ export function skillOf(manifest: CharacterManifest, skillId: string) {
   return manifest.skills.find((row) => row.id === skillId) ?? null;
 }
 
-/** Compact command set: Basic + Special(s). Guard and Asura stay on manifests but are omitted from battle UI. */
+/**
+ * Compact animation-test command set: Basic + Special(s).
+ * Guard remains on manifests/engine/tests but is intentionally hidden from the battle UI
+ * while the owner inspects 1-EN specials (temporary visibility choice, not a mechanic removal).
+ * Asura stays omitted the same way.
+ */
 export function primarySkills(manifest: CharacterManifest): SkillDef[] {
   const basic = skillOf(manifest, "basic") ?? skillOf(manifest, "action-a") ?? skillOf(manifest, "dummy-poke");
   const special = skillOf(manifest, "special");

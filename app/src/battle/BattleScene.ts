@@ -12,6 +12,7 @@ import {
   type Mesh,
 } from "@babylonjs/core";
 import "@babylonjs/loaders/glTF";
+import { applyCameraPose, fieldCameraPose, type FieldCameraPose } from "./battleCamera";
 
 /** Minimal Babylon host for the battle arena (no inspector tooling). */
 export class BattleScene {
@@ -19,12 +20,21 @@ export class BattleScene {
   readonly scene: Scene;
   readonly camera: ArcRotateCamera;
   private readonly ground: Mesh;
+  private fieldPose: FieldCameraPose = fieldCameraPose(false);
 
   constructor(canvas: HTMLCanvasElement) {
     this.engine = new Engine(canvas, true, { preserveDrawingBuffer: true });
     this.scene = new Scene(this.engine);
     this.scene.clearColor = new Color4(0.12, 0.13, 0.15, 1);
-    this.camera = new ArcRotateCamera("orbit", 0.4, 0.98, 440, new Vector3(0, 70, 0), this.scene);
+    const pose = fieldCameraPose(false);
+    this.camera = new ArcRotateCamera(
+      "orbit",
+      pose.alpha,
+      pose.beta,
+      pose.radius,
+      pose.target.clone(),
+      this.scene,
+    );
     this.camera.attachControl(canvas, true);
     this.camera.lowerRadiusLimit = 80;
     this.camera.upperRadiusLimit = 2000;
@@ -43,11 +53,28 @@ export class BattleScene {
     });
   }
 
-  prepareBattleScene(): void {
-    this.camera.setTarget(new Vector3(0, 70, 0));
-    this.camera.radius = 440;
-    this.camera.alpha = 0.4;
-    this.camera.beta = 0.98;
+  prepareBattleScene(wideField = false): void {
+    this.fieldPose = fieldCameraPose(wideField);
+    applyCameraPose(this.camera, this.fieldPose);
+  }
+
+  /** Remember / restore the establishing shot used for the current lineup. */
+  restoreFieldCamera(): void {
+    applyCameraPose(this.camera, this.fieldPose);
+  }
+
+  setFieldCamera(pose: FieldCameraPose): void {
+    this.fieldPose = {
+      alpha: pose.alpha,
+      beta: pose.beta,
+      radius: pose.radius,
+      target: pose.target.clone(),
+    };
+    applyCameraPose(this.camera, this.fieldPose);
+  }
+
+  applyActionCamera(pose: FieldCameraPose): void {
+    applyCameraPose(this.camera, pose);
   }
 
   resize(): void {

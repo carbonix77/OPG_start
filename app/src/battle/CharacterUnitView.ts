@@ -284,7 +284,7 @@ export class CharacterUnitView {
     contactNormalized: number,
     onContact: (token: number) => void,
     onComplete: (token: number, outcome: "ok" | "missed-contact") => void,
-    options?: { companionClips?: string[]; followClips?: string[] },
+    options?: { companionClips?: string[]; followClips?: string[]; contactSegment?: number },
   ): { token: number; note: string; mode: "clip" | "missing" } {
     this.cancelAction();
     const token = ++this.token;
@@ -293,6 +293,10 @@ export class CharacterUnitView {
     }
     const companions = options?.companionClips ?? [];
     const sequence = [clipName, ...(options?.followClips ?? [])];
+    const contactSegment = Math.max(
+      0,
+      Math.min(sequence.length - 1, Math.floor(options?.contactSegment ?? 0)),
+    );
     for (const name of companions) {
       if (!this.phantoms.some((phantom) => phantom.clip === name)) {
         return { token, mode: "missing", note: `Unit ${this.unitId} missing companion body for ${name}.` };
@@ -384,7 +388,7 @@ export class CharacterUnitView {
         }
         alignFollowToCarry();
       }
-      if (index === 0) {
+      if (index === contactSegment) {
         this.contactObserver = this.scene.onBeforeRenderObservable.add(() => {
           if (!this.contactArmed || token !== this.token || settled || contactApplied) return;
           if (!chainMotion) this.applyRecenter();
@@ -425,10 +429,11 @@ export class CharacterUnitView {
     );
     const followNote = sequence.length > 1 ? ` → ${sequence.slice(1).join(" → ")}` : "";
     const companionNote = companions.length ? ` + ${companions.join(",")}` : "";
+    const segName = sequence[contactSegment] ?? clipName;
     return {
       token,
       mode: "clip",
-      note: `Unit ${this.unitId} plays ${clipName}${followNote}${companionNote}; contact at ${contactNormalized}.`,
+      note: `Unit ${this.unitId} plays ${clipName}${followNote}${companionNote}; contact ${segName}@${contactNormalized}.`,
     };
   }
 

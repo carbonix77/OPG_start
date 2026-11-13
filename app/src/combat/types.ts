@@ -12,8 +12,18 @@ export interface SkillDef {
   damage: number;
   /** Normalized clip times. Presentation may ignore them for synthetic units. */
   startup: number;
+  /**
+   * Normalized time within the contact segment (0–1 of that clip's from→to).
+   * Single-hit semantics: exactly one contact event per skill presentation.
+   */
   contact: number;
   recovery: number;
+  /**
+   * Which clip in `[clipId, ...followClips]` owns the contact frame (0-based).
+   * Default 0 = first/only clip. Multipart specials (e.g. Robin Clutch) set this
+   * to the damaging segment so Hit/Death are not fired on anticipation frames.
+   */
+  contactSegment?: number;
   /** Clip already in the loaded file, or null when this skill has no animation. */
   clipId: string | null;
   /**
@@ -26,6 +36,11 @@ export interface SkillDef {
    * Presentation only; headless resolve ignores them.
    */
   followClips?: string[];
+  /**
+   * Short note for calibrated impact frames (REVIEW / owner inspection).
+   * Not used by the engine.
+   */
+  contactNote?: string;
   confidence: "provisional" | "candidate" | "named" | "synthetic";
   /** Energy spent when the action begins. */
   energyCost: number;

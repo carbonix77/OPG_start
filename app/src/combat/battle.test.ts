@@ -13,7 +13,9 @@ import {
 } from "./lineups";
 import {
   FIXTURE_MANIFEST,
+  LUFFY_MANIFEST,
   NAMI_MANIFEST,
+  ROBIN_MANIFEST,
   SANJI_MANIFEST,
   SYNTHETIC_MANIFEST,
   USOPP_MANIFEST,
@@ -579,6 +581,7 @@ describe("BattleEngine", () => {
   it("builds a random 5v5 with every skinned character plus dummy fillers", () => {
     const lineup = buildRandom5v5Lineup(42);
     expect(lineup.units).toHaveLength(10);
+    expect(lineup.seed).toBe(42);
     expect(lineup.units.filter((unit) => unit.team === "alpha")).toHaveLength(5);
     expect(lineup.units.filter((unit) => unit.team === "bravo")).toHaveLength(5);
     const skinnedIds = new Set(SKINNED_BATTLE_ROSTER.map((unit) => unit.id));
@@ -594,10 +597,33 @@ describe("BattleEngine", () => {
     expect(keys.size).toBe(10);
     const engine = new BattleEngine(3, lineupToSpawns(lineup));
     expect(engine.getState().units).toHaveLength(10);
-    // Same seed is deterministic.
+    // Same seed is deterministic (Replay).
     expect(buildRandom5v5Lineup(42).units.map((unit) => `${unit.team}:${unit.id}`)).toEqual(
       lineup.units.map((unit) => `${unit.team}:${unit.id}`),
     );
+    expect(buildRandom5v5Lineup(42).seed).toBe(42);
     expect(LINEUP_5V5_SYNTHETIC.units).toHaveLength(10);
+  });
+
+  it("keeps calibrated contact segments for Onigiri, Bazooka, and Clutch", () => {
+    expect(skillOf(ZORO_MANIFEST, "special")).toMatchObject({
+      clipId: "Onigiri",
+      contactSegment: 0,
+      contact: 0.55,
+    });
+    expect(skillOf(LUFFY_MANIFEST, "special")).toMatchObject({
+      clipId: "Bazooka",
+      contactSegment: 0,
+      contact: 0.62,
+    });
+    expect(skillOf(ROBIN_MANIFEST, "special")).toMatchObject({
+      clipId: "Clutch_1",
+      contactSegment: 2,
+      contact: 0.48,
+      followClips: ["Clutch_2", "Clutch_3", "Clutch_4", "Clutch_5", "Clutch_6", "Clutch_7"],
+    });
+    // Guard stays on the manifest for engine tests but is omitted from the animation-test UI.
+    expect(skillOf(ZORO_MANIFEST, "guard")).toBeTruthy();
+    expect(primarySkills(ZORO_MANIFEST).some((skill) => skill.id === "guard")).toBe(false);
   });
 });

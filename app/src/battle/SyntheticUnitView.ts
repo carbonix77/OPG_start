@@ -67,7 +67,7 @@ export class SyntheticUnitView {
     contactNormalized: number,
     onContact: (token: number) => void,
     onComplete: (token: number, outcome: "ok" | "missed-contact") => void,
-    _options?: { companionClips?: string[]; followClips?: string[] },
+    _options?: { companionClips?: string[]; followClips?: string[]; contactSegment?: number },
   ): { token: number; note: string; mode: "clip" | "missing" } {
     this.cancelAction();
     const token = ++this.token;
